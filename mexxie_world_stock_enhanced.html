@@ -1048,10 +1048,36 @@ function renderScreener(){
 function renderETF(){
   var t=T();var f=document.createDocumentFragment();
   f.appendChild(regionBar());
-  var info=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"10px",padding:"14px",margin:"12px 0"}});
-  info.appendChild(h("h3",{style:{margin:"0 0 6px",fontSize:"15px",fontWeight:"600"}},"ETF & Quant Strategy Overlay \u2014 "+S.region));
-  info.appendChild(h("p",{style:{margin:"0",fontSize:"12px",color:t.ts,lineHeight:"1.6"}},"Factor ETFs ranked by cost-adjusted composite: 12-month momentum, yield, and expense drag. A 0.50% fee difference compounds to ~12% less wealth over 30 years. Showing "+S.region+" relevant ETFs."));
-  f.appendChild(info);
+
+  // Comprehensive ETF Overlay explanation
+  var etfExplain=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",margin:"12px 0"}});
+  etfExplain.appendChild(h("h3",{style:{margin:"0 0 4px",fontSize:"15px",fontWeight:"700"}},"\uD83D\uDCE6 Complementary ETF Overlay \u2014 "+S.region));
+  etfExplain.appendChild(h("p",{style:{margin:"0 0 12px",fontSize:"12px",color:t.ts,lineHeight:"1.6"}},"The ETF Overlay recommends Exchange-Traded Funds aligned with your strategy. While the Screener picks individual stocks, ETFs provide instant diversification, lower risk, and factor exposure you may not capture with "+S.numPicks+" stock picks alone."));
+
+  var etfGuide=[
+    ["\uD83C\uDFAF","SMART RANKING:","ETFs are scored on three axes: (1) cost efficiency \u2014 low expense ratios rank higher since a 0.50% fee gap compounds to ~12% less wealth over 30 years, (2) momentum \u2014 trailing 12-month returns indicate trend strength, (3) yield \u2014 dividend income adds to total return. Scores dynamically adjust to your Settings \u2192 Strategy Weights."],
+    ["\uD83D\uDD04","HOW TO USE \u2014 CORE + SATELLITE:","Allocate 50\u201370% of your portfolio to 1\u20132 top-ranked broad ETFs (VTI, VXUS) for low-cost market exposure. Then allocate 30\u201350% to your top stock picks from the Screener. This gives you broad diversification from ETFs as a floor, plus alpha potential from high-scoring individual stocks."],
+    ["\uD83D\uDCCA","FACTOR TILTING:","If your analysis shows value is undervalued (high Greenblatt/Tweedy weights), complement value stock picks with AVUV (small-cap value) or IVAL (international value). If momentum is strong (high Simons weight), pair stock picks with MTUM or IMOM. This doubles down on your conviction factors."],
+    ["\uD83C\uDF0D","REGIONAL DIVERSIFICATION:","Your stock picks may cluster in one region. Use regional ETFs (EWJ for Japan, EWZ for Brazil, EZA for South Africa) to fill geographic gaps. The region filter also filters ETFs \u2014 switch to \u201CAsia\u201D to see only Asia-relevant ETFs."],
+    ["\uD83D\uDCB0","FEE IMPACT:","A fund charging 0.03% (VTI) vs 0.74% (FXI) means $142,000 vs $126,000 after 30 years on a $10K investment at 9% returns. Prefer ETFs scoring high with fees under 0.20%."],
+    ["\u2696\uFE0F","REBALANCING:","Review quarterly. Sell ETFs that dropped in score (factor rotation) and replace with top-ranked. The Proven Quant Strategies section below shows backtested systematic approaches for ETF-based rebalancing."]
+  ];
+  etfGuide.forEach(function(item){
+    var row3=h("div",{style:{display:"flex",gap:"8px",marginBottom:"8px",alignItems:"flex-start"}});
+    row3.appendChild(h("span",{style:{fontSize:"13px",flexShrink:"0",lineHeight:"1.4"}},item[0]));
+    var txt3=h("div",{style:{fontSize:"11px",lineHeight:"1.6"}});
+    txt3.appendChild(h("span",{style:{fontWeight:"700",color:t.text}},item[1]+" "));
+    txt3.appendChild(h("span",{style:{color:t.ts}},item[2]));
+    row3.appendChild(txt3);
+    etfExplain.appendChild(row3);
+  });
+
+  // Practical example
+  var example=h("div",{style:{padding:"10px 12px",background:t.surface,borderRadius:"8px",marginTop:"10px",borderLeft:"3px solid "+t.accent}});
+  example.appendChild(h("div",{style:{fontSize:"11px",fontWeight:"700",color:t.accent,marginBottom:"4px"}},"\uD83D\uDCA1 Example Portfolio Using This Screen"));
+  example.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,lineHeight:"1.7"}},"With "+S.numPicks+" stock picks and the ETF overlay: 40% VTI/VXUS (core broad), 10% top factor ETF (AVUV or MTUM based on weights), 50% across top "+S.numPicks+" stocks ("+Math.round(50/S.numPicks)+"% each). Rebalance quarterly for market-rate floor plus multi-factor alpha."));
+  etfExplain.appendChild(example);
+  f.appendChild(etfExplain);
   var etfs=getETFs();
   var grid=h("div",{className:"etf-grid"});
   etfs.forEach(function(e,i){

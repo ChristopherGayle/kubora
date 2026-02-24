@@ -1122,11 +1122,43 @@ function renderScreener(){
   // ---- ETF & Quant Overlay (merged from ETF tab) ----
   var etfDiv=h("div",{style:{marginTop:"24px"}});
   var etfHdr=h("div",{style:{display:"flex",alignItems:"center",gap:"8px",marginBottom:"12px"}});
-  etfHdr.appendChild(h("h3",{style:{margin:"0",fontSize:"15px",fontWeight:"700"}},"📦 Complementary ETF Overlay"));
-  etfHdr.appendChild(h("span",{style:{fontSize:"11px",color:t.tm}},"— ranked by strategy alignment with your current weights · "+S.region));
+  etfHdr.appendChild(h("h3",{style:{margin:"0",fontSize:"15px",fontWeight:"700"}},"\uD83D\uDCE6 Complementary ETF Overlay"));
+  etfHdr.appendChild(h("span",{style:{fontSize:"11px",color:t.tm}},"\u2014 ranked by strategy alignment with your current weights \u00B7 "+S.region));
   etfDiv.appendChild(etfHdr);
-  var etfInfo=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"10px",padding:"10px 14px",marginBottom:"12px",fontSize:"11px",color:t.ts,lineHeight:"1.6"}});
-  etfInfo.innerHTML="ETF scores incorporate your <span style='color:"+t.accent+";font-weight:600'>Greenblatt/Tweedy/Munger/Simons weights</span>. Higher weight on Value = value ETFs rank up; higher Momentum = MTUM/QQQ rank up. A 0.50% fee difference compounds to ~12% less wealth over 30 years.";
+
+  // Comprehensive ETF explanation
+  var etfExplain=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",marginBottom:"14px"}});
+  etfExplain.appendChild(h("h4",{style:{margin:"0 0 8px",fontSize:"13px",fontWeight:"700",color:t.accent}},"What Is the Complementary ETF Overlay?"));
+  etfExplain.appendChild(h("p",{style:{margin:"0 0 10px",fontSize:"11px",color:t.ts,lineHeight:"1.7"}},"The ETF Overlay is a portfolio construction tool that recommends Exchange-Traded Funds aligned with your current investment strategy. While the main screener picks individual stocks, ETFs provide instant diversification, lower risk, and factor exposure you may not fully capture with 8\u201320 stock picks."));
+
+  var etfGuide=[
+    ["\uD83C\uDFAF","SMART RANKING:","ETFs are scored using three components: (1) cost efficiency \u2014 low expense ratios rank higher since a 0.50% fee gap compounds to ~12% less wealth over 30 years, (2) momentum \u2014 trailing 12-month returns indicate trend strength, (3) yield \u2014 dividend income adds to total return. Scores are then adjusted by YOUR strategy weights \u2014 if you boost Greenblatt/Tweedy, value ETFs (VTV, AVUV, COWZ) rank higher. If you boost Simons, momentum ETFs (MTUM, QQQ, IMOM) rise."],
+    ["\uD83D\uDD04","HOW TO USE \u2014 CORE + SATELLITE:","Use a Core + Satellite approach: allocate 50\u201370% of your portfolio to 1\u20132 top-ranked broad ETFs (VTI, VXUS) for low-cost market exposure. Then allocate 30\u201350% to your top individual stock picks from the screener above. This gives you broad diversification from ETFs plus alpha potential from high-scoring individual stocks."],
+    ["\uD83D\uDCCA","FACTOR TILTING:","The overlay lets you tilt toward specific factors. If your analysis shows value is undervalued (high Greenblatt/Tweedy weights), complement your value stock picks with AVUV (small-cap value) or IVAL (international value). If momentum is strong, pair stock picks with MTUM or IMOM. This doubles down on your conviction factors."],
+    ["\uD83C\uDF0D","REGIONAL DIVERSIFICATION:","Your stock picks may cluster in one region. Use regional ETFs (EWJ for Japan, EWZ for Brazil, EZA for South Africa) to fill gaps. The region filter above also filters ETFs, so switching to \u201CAsia\u201D shows only Asia-relevant ETFs alongside Asian stock picks."],
+    ["\uD83D\uDCB0","FEE IMPACT:","Expense ratios matter enormously over time. A fund charging 0.03% (VTI) vs 0.74% (FXI) means $142,000 vs $126,000 after 30 years on a $10,000 investment at 9% returns. The score penalizes high-fee ETFs. Prefer ETFs scoring high with fees under 0.20%."],
+    ["\u2696\uFE0F","REBALANCING:","Review ETF allocation quarterly. Sell ETFs that dropped in strategy score (factor rotation) and replace with the current top-ranked. The Proven Quant Strategies section below shows backtested systematic approaches \u2014 Dual Momentum and Value+Momentum 50/50 are the easiest to implement using these ETFs."]
+  ];
+  etfGuide.forEach(function(item){
+    var row3=h("div",{style:{display:"flex",gap:"8px",marginBottom:"8px",alignItems:"flex-start"}});
+    row3.appendChild(h("span",{style:{fontSize:"13px",flexShrink:"0",lineHeight:"1.4"}},item[0]));
+    var txt3=h("div",{style:{fontSize:"11px",lineHeight:"1.6"}});
+    txt3.appendChild(h("span",{style:{fontWeight:"700",color:t.text}},item[1]+" "));
+    txt3.appendChild(h("span",{style:{color:t.ts}},item[2]));
+    row3.appendChild(txt3);
+    etfExplain.appendChild(row3);
+  });
+
+  // Practical example
+  var example=h("div",{style:{padding:"10px 12px",background:t.surface,borderRadius:"8px",marginTop:"10px",borderLeft:"3px solid "+t.accent}});
+  example.appendChild(h("div",{style:{fontSize:"11px",fontWeight:"700",color:t.accent,marginBottom:"4px"}},"\uD83D\uDCA1 Example Portfolio Using This Screen"));
+  example.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,lineHeight:"1.7"}},"With "+S.numPicks+" stock picks above and the ETF overlay, a balanced portfolio might look like: 40% VTI/VXUS (core broad exposure), 10% top factor ETF (e.g., AVUV or MTUM based on your weights), 50% split across your top "+S.numPicks+" stock picks ("+Math.round(50/S.numPicks)+"% each). Rebalance quarterly. This gives you market-rate returns from ETFs as a floor, plus potential outperformance from your multi-factor stock picks."));
+  etfExplain.appendChild(example);
+  etfDiv.appendChild(etfExplain);
+
+  // Original score info (shortened)
+  var etfInfo=h("div",{style:{background:t.accentGlow,border:"1px solid "+t.accent+"33",borderRadius:"8px",padding:"8px 12px",marginBottom:"12px",fontSize:"11px",color:t.text,lineHeight:"1.5"}});
+  etfInfo.innerHTML="\u26A1 <strong>Live Ranking:</strong> ETF scores dynamically adjust to your <span style='color:"+t.accent+";font-weight:700'>Settings \u2192 Strategy Weights</span>. Change your weights and watch ETF rankings reorder instantly.";
   etfDiv.appendChild(etfInfo);
   var nw2=nW();
   function etfStratSc(e){
