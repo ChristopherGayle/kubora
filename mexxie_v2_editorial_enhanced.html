@@ -248,37 +248,59 @@ var QUANT_STRATEGIES=[
 var STRAT_DETAILS=[
   {title:"Greenblatt Magic Formula \u2014 28%",icon:"\uD83D\uDCCA",
    why:"From 1988-2004 returned ~30.8% vs S&P 12.4% across 3,500 stocks. Confirmed in Sweden, Finland, Norway, Brazil, France, India. Enhanced with EV/EBIT (Acquirer\u2019s Multiple) which Carlisle showed beats original EY by ~2%/yr.",
-   met:"Earnings Yield (EBIT/EV) + ROIC rank + EV/EBIT. Triple-factor value selection."},
+   met:"Earnings Yield (EBIT/EV) + ROIC rank + EV/EBIT. Triple-factor value selection.",
+   deep:"Joel Greenblatt\u2019s Magic Formula ranks every stock by two metrics: Earnings Yield (how cheap it is) and Return on Invested Capital (how efficiently it uses money). Stocks that rank high on BOTH get the best composite score. The genius is its simplicity \u2014 it systematically finds businesses earning high returns that the market has mispriced as cheap. The formula was backtested on the entire US market from 1988\u20132004 and independently validated across 6+ countries.",
+   use:"Increase to 30\u201340% when markets feel overvalued and you want to focus on stocks the market has overlooked. Decrease to 10\u201315% during strong bull runs where momentum matters more than valuation. This is the default anchor strategy \u2014 keep it at 20%+ in most market conditions."},
   {title:"Tweedy Browne Value \u2014 18%",icon:"\uD83C\uDFDB\uFE0F",
    why:"Oldest value firm (1920), tied to Graham. Beat S&P by ~2%/yr for 40 years. Enhanced with Shareholder Yield (div+buyback+debt paydown) which Faber showed beats dividend-only by 2-3%/yr.",
-   met:"P/B. Insider buying. Dividend yield. FCF yield. Shareholder Yield."},
+   met:"P/B. Insider buying. Dividend yield. FCF yield. Shareholder Yield.",
+   deep:"Tweedy Browne is the oldest continuously operating value investment firm, founded in 1920 with direct lineage to Benjamin Graham (the father of value investing). Their approach focuses on stocks trading below intrinsic value using price-to-book ratio, insider buying activity, and free cash flow yield. When company insiders buy their own stock, it\u2019s a powerful signal \u2014 they know the business best. The Shareholder Yield enhancement captures the full picture of how companies return cash to shareholders beyond just dividends.",
+   use:"Increase to 25\u201330% during market downturns or corrections when quality companies trade at deep discounts. Especially powerful in international markets where many companies trade below book value. Decrease during growth-driven bull markets where P/B ratios matter less."},
   {title:"Munger Quality/Moat \u2014 18%",icon:"\uD83C\uDFF0",
    why:"Wonderful companies at fair prices. MSCI Quality index outperforms with lower drawdowns. Enhanced with Revenue Growth Consistency to screen out cyclical one-hit wonders.",
-   met:"Economic Moat (1-5). Business quality. Management quality. Revenue growth consistency."},
+   met:"Economic Moat (1-5). Business quality. Management quality. Revenue growth consistency.",
+   deep:"Charlie Munger (Buffett\u2019s partner) evolved Graham\u2019s deep value approach into paying fair prices for wonderful businesses. The Moat score (1\u20135) measures how defensible a company\u2019s competitive advantage is \u2014 think brand power, network effects, switching costs, or cost advantages. A 5-moat company (like a dominant platform or essential infrastructure) can sustain above-average profits for decades. Quality stocks historically outperform with significantly lower drawdowns during bear markets.",
+   use:"Increase to 25\u201335% when you expect market volatility or a downturn \u2014 quality companies fall less and recover faster. This is your \u201Cdefensive offense\u201D strategy. Decrease when seeking deep value bargains, as quality stocks are rarely the cheapest."},
   {title:"Simons Quantitative \u2014 12%",icon:"\uD83D\uDD2C",
    why:"Medallion Fund: 66% annual returns (30 yrs). Enhanced with RSI filter: RSI 40-65 = ideal entry, RSI >75 = overbought penalty. Reduces buying into extended rallies.",
-   met:"Momentum (12-1 mo). Mean reversion. Stat arb composite. RSI zone filter (ideal 40-65)."},
+   met:"Momentum (12-1 mo). Mean reversion. Stat arb composite. RSI zone filter (ideal 40-65).",
+   deep:"Jim Simons\u2019 Renaissance Technologies achieved the greatest investment track record in history with 66% annual returns over 30 years. While the full Medallion strategy uses high-frequency statistical arbitrage, the accessible components are momentum and mean reversion. 12-month momentum (excluding the most recent month) is the most robust factor in academic finance, validated across 200+ years and 40+ countries. The RSI filter prevents buying at extended peaks.",
+   use:"Increase to 20\u201325% during trending bull markets when momentum factor is strongest. Decrease to 5\u201310% during choppy or range-bound markets where momentum signals whipsaw. Works best when combined with quality filters to avoid momentum crashes."},
   {title:"Piotroski F-Score \u2014 8%",icon:"\uD83E\uDDE0",
    why:"Piotroski (2000) showed 9 binary signals earn ~23% vs S&P in backtests, best in small-cap value. Score 8-9 = strong buy. Score 0-2 = avoid. Validated internationally.",
-   met:"9-point binary: ROA, CFO, dROA, accruals + dleverage, dliquidity, no new shares + dmargin, dturnover."},
+   met:"9-point binary: ROA, CFO, dROA, accruals + dleverage, dliquidity, no new shares + dmargin, dturnover.",
+   deep:"Joseph Piotroski (Stanford, 2000) created 9 simple yes/no tests of financial health. Each test scores 1 if the company passes: Is ROA positive? Is cash flow positive and exceeding earnings? Is profitability improving? Are debt levels declining? Is the company NOT diluting shareholders? Are margins expanding? The F-Score ranges 0\u20139, where 8\u20139 signals a financially strong company improving on all fronts. Especially powerful for separating genuine value stocks from \u201Cvalue traps\u201D \u2014 cheap stocks that deserve to be cheap.",
+   use:"Increase to 15\u201320% when screening small-cap or emerging market stocks where financial health is paramount. Also boost during credit tightening or recession fears. Keep at 5\u201310% in strong economic environments where even weak companies can survive."},
   {title:"Altman Z-Score \u2014 5%",icon:"\uD83D\uDEE1\uFE0F",
    why:"Altman (1968) bankruptcy model, 72-80% accuracy 2 years ahead. Distress stocks (<1.81 Z) get contribution capped at 20%. Prevents value traps heading to bankruptcy.",
-   met:"Z>2.99=Safe (green). 1.81-2.99=Grey (caution). <1.81=Distress (penalty, capped 20%)."},
+   met:"Z>2.99=Safe (green). 1.81-2.99=Grey (caution). <1.81=Distress (penalty, capped 20%).",
+   deep:"Edward Altman (NYU, 1968) developed the Z-Score as a bankruptcy prediction model using 5 financial ratios: working capital/assets, retained earnings/assets, EBIT/assets, market cap/total liabilities, and sales/assets. With 72\u201380% accuracy at predicting bankruptcy 2 years in advance, it\u2019s the most validated distress model in finance. In this screener, stocks below Z=1.81 (distress zone) have their overall score contribution capped at 20% \u2014 meaning even a stock that scores highly on other factors can\u2019t rank in the top picks if it\u2019s heading toward bankruptcy.",
+   use:"Increase to 10\u201315% during economic downturns, rising interest rate environments, or when screening highly leveraged sectors (airlines, retail, real estate). Keep at 3\u20135% during strong economic conditions. This is primarily a defensive filter \u2014 it removes dangerous stocks rather than finding great ones."},
   {title:"RSI Zone Filter \u2014 5%",icon:"\uD83D\uDCC8",
    why:"RSI reduces buying into overbought rallies. RSI 40-65 = ideal entry (score 1.0). RSI 65-75 = caution (0.5). RSI <40 = contrarian entry (0.7). RSI >75 = overbought penalty (0.1).",
-   met:"RSI 40-65: 1.0. RSI 65-75: 0.5. RSI <40: 0.7. RSI >75: 0.1 (avoid)."},
+   met:"RSI 40-65: 1.0. RSI 65-75: 0.5. RSI <40: 0.7. RSI >75: 0.1 (avoid).",
+   deep:"The Relative Strength Index (RSI) measures price momentum on a 0\u2013100 scale over the last 14 trading days. Rather than using traditional overbought/oversold thresholds (70/30), this filter creates nuanced entry zones. RSI 40\u201365 represents stocks with positive but not excessive momentum \u2014 the ideal buying window. Below 40 gets a moderate score (0.7) for contrarian opportunity, while above 75 gets heavily penalized (0.1) to avoid buying at the top of a run.",
+   use:"Increase to 10\u201315% during volatile markets where timing entries matters more. Pairs naturally with Simons Quant \u2014 momentum picks the direction, RSI picks the entry point. Decrease when you\u2019re a long-term holder who doesn\u2019t care about short-term entry timing."},
   {title:"EV/EBIT Acquirer\u2019s Multiple \u2014 3%",icon:"\u2696\uFE0F",
    why:"Carlisle showed EV/Operating Earnings beats Greenblatt EY by ~2%/yr by stripping out financial engineering and off-balance-sheet debt. Lower = deeper, cleaner value.",
-   met:"EV / EBIT. <8x = deep value. 8-15x = fair. >20x = expensive."},
+   met:"EV / EBIT. <8x = deep value. 8-15x = fair. >20x = expensive.",
+   deep:"Tobias Carlisle\u2019s Acquirer\u2019s Multiple takes enterprise value (market cap + debt \u2013 cash) and divides by operating earnings (EBIT). Unlike P/E ratio, it accounts for a company\u2019s debt structure and is harder to manipulate with accounting tricks. A company with an EV/EBIT of 6x means you\u2019re paying 6 years of operating earnings for the entire business including its debt. This is exactly how corporate acquirers and private equity firms value takeover targets.",
+   use:"Increase to 8\u201312% for a pure deep-value approach, especially in mature industries (energy, industrials, utilities) where cash flows are predictable. This overlaps with and refines the Greenblatt score. Keep low (2\u20134%) if you prefer growth or quality-oriented screening."},
   {title:"Shareholder Yield \u2014 3%",icon:"\uD83D\uDCB0",
    why:"Faber showed div+buybacks+debt paydown beats dividend-only by 2-3%/yr, especially outside the US where buybacks are less common. Full picture of capital allocation.",
-   met:"Div yield + buyback yield + debt paydown. 8%+ = high. 4-8% = moderate. <2% = low."},
+   met:"Div yield + buyback yield + debt paydown. 8%+ = high. 4-8% = moderate. <2% = low.",
+   deep:"Meb Faber demonstrated that looking only at dividend yield misses most of how companies return cash to shareholders. Shareholder Yield adds together dividends, share buybacks, and net debt paydown. A company paying 2% dividends, buying back 3% of shares, and paying down 2% of debt annually has 7% Shareholder Yield. This is particularly important internationally where many companies prefer buybacks over dividends, or where tax structures favor debt reduction.",
+   use:"Increase to 8\u201312% when screening international stocks or when seeking income-producing portfolios with total return focus. Especially valuable in emerging markets where dividend policies vary widely. Decrease when targeting high-growth companies that reinvest all cash."},
   {title:"Revenue Growth Consistency \u2014 2%",icon:"\uD83D\uDCC5",
    why:"Consecutive quarters of positive revenue growth screens out cyclicals appearing cheap at earnings peaks. Complements the Munger quality pillar.",
-   met:"Consecutive quarters with positive YoY revenue growth. 6-8 = excellent. 0-2 = avoid."},
+   met:"Consecutive quarters with positive YoY revenue growth. 6-8 = excellent. 0-2 = avoid.",
+   deep:"This filter counts how many consecutive quarters a company has delivered positive year-over-year revenue growth. It\u2019s designed to solve a specific problem: cyclical companies (mining, oil, shipping) often appear cheap at earnings peaks right before revenue collapses. A company with 8 consecutive growth quarters has demonstrated consistent demand, while one with 0\u20132 quarters may be at a cyclical top. This pairs with Munger Quality to ensure you\u2019re buying companies with genuine, sustainable growth.",
+   use:"Increase to 5\u20138% when you want to avoid cyclical value traps, or when the business cycle appears to be peaking. Keep at 1\u20133% when you\u2019re comfortable with cyclical exposure and want to catch turnaround stories."},
   {title:"Short Interest Contrarian \u2014 2%",icon:"\uD83C\uDFAF",
    why:"Short interest 5-15% can signal contrarian opportunity if fundamentals are strong. >20% signals informed shorts. Used as tie-breaker.",
-   met:"% of float sold short. 5-15% = mild contrarian positive. <5% = neutral. >20% = caution."}
+   met:"% of float sold short. 5-15% = mild contrarian positive. <5% = neutral. >20% = caution.",
+   deep:"When 5\u201315% of a company\u2019s tradable shares are sold short, it means some investors are betting against it \u2014 but not overwhelmingly so. When paired with strong fundamental scores, moderate short interest can signal a contrarian opportunity: the shorts may be wrong, and a positive catalyst could trigger a short squeeze (shorts buying back shares, pushing the price up). However, above 20% short interest, the shorts are often well-informed institutional investors with deep research. This factor is used as a tie-breaker, not a primary signal.",
+   use:"Increase to 4\u20136% during market recoveries when short squeezes are common. Keep at 1\u20132% in normal conditions \u2014 this is always a secondary signal, never a primary investment thesis. Decrease to 0% if you prefer to align with market consensus rather than bet against it."}
 ];
 
 // ===================== SCORING (9-factor composite) =====================
@@ -1062,6 +1084,29 @@ function renderScreener(){
   });
   wb.appendChild(wg);f.appendChild(wb);
 
+  // Reading the Metrics guide
+  var mg=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"10px",padding:"12px 14px",marginBottom:"12px"}});
+  mg.appendChild(h("h4",{style:{margin:"0 0 8px",fontSize:"13px",fontWeight:"700",color:t.accent}},"\uD83D\uDCD6 Reading the Stock Cards"));
+  var metGuide=[
+    ["\uD83D\uDCCA","GREENBLATT COLUMN:","EY (Earnings Yield) = EBIT/Enterprise Value \u2014 higher is cheaper. ROIC = Return on Invested Capital \u2014 higher means the business is more efficient. EV/EBIT = valuation multiple \u2014 lower is deeper value. The bar shows combined EY+ROIC strength."],
+    ["\uD83C\uDFDB\uFE0F","VALUE/QUALITY COLUMN:","P/B = Price-to-Book ratio \u2014 below 1.0 means trading under asset value. Moat (1\u20135) = competitive advantage strength. ShY = Shareholder Yield (dividends + buybacks + debt paydown). RevQ = consecutive growth quarters (0\u20138)."],
+    ["\uD83D\uDD2C","QUANT/RSI COLUMN:","Mom = 12-month momentum score. Long/Neutral = trend direction. RSI = Relative Strength Index: OK (40\u201365, ideal entry), OB (>75, overbought \u2014 avoid), OS (<40, oversold \u2014 contrarian). The bar shows statistical arbitrage composite."],
+    ["\uD83D\uDEE1\uFE0F","F/Z SCORE COLUMN:","F-Score (0\u20139) = Piotroski financial health \u2014 7+ is strong, 3\u2013 is weak. Z-Score = Altman bankruptcy risk \u2014 >2.99 safe (green), 1.81\u20132.99 grey zone, <1.81 distress (red). Short% = short interest as % of float."]
+  ];
+  metGuide.forEach(function(item){
+    var row2=h("div",{style:{display:"flex",gap:"6px",marginBottom:"6px",alignItems:"flex-start"}});
+    row2.appendChild(h("span",{style:{fontSize:"11px",flexShrink:"0"}},item[0]));
+    var txt2=h("div",{style:{fontSize:"10px",lineHeight:"1.5"}});
+    txt2.appendChild(h("span",{style:{fontWeight:"700",color:t.text}},item[1]+" "));
+    txt2.appendChild(h("span",{style:{color:t.ts}},item[2]));
+    row2.appendChild(txt2);
+    mg.appendChild(row2);
+  });
+  var colorKey=h("div",{style:{marginTop:"6px",fontSize:"10px",color:t.ts,lineHeight:"1.5"}});
+  colorKey.innerHTML="<strong style='color:"+t.text+"'>Color coding:</strong> <span style='color:"+t.buy+"'>\u25CF Green</span> = strong/safe/ideal \u00B7 <span style='color:#f59e0b'>\u25CF Amber</span> = moderate/caution \u00B7 <span style='color:"+t.sell+"'>\u25CF Red</span> = weak/distress/overbought";
+  mg.appendChild(colorKey);
+  f.appendChild(mg);
+
   // Stocks
   var list=h("div",{style:{display:"grid",gap:"8px"}});
   top.forEach(function(st,i){
@@ -1195,7 +1240,27 @@ function renderScreener(){
   });
   etfDiv.appendChild(etfGrid);
   // Quant strategies
-  etfDiv.appendChild(h("h3",{style:{fontSize:"14px",fontWeight:"700",margin:"20px 0 10px",color:t.text}},"⚗️ Proven Quant Strategies (Backtested)"));
+  etfDiv.appendChild(h("h3",{style:{fontSize:"14px",fontWeight:"700",margin:"20px 0 10px",color:t.text}},"\u2697\uFE0F Proven Quant Strategies (Backtested)"));
+
+  // Quant methodology explanation
+  var qmExp=h("div",{style:{background:t.surface,border:"1px solid "+t.border,borderRadius:"10px",padding:"12px 14px",marginBottom:"12px"}});
+  qmExp.appendChild(h("p",{style:{margin:"0 0 8px",fontSize:"11px",color:t.ts,lineHeight:"1.7"}},"These are systematic, rules-based investment strategies that have been backtested across decades of market data. Unlike discretionary stock-picking, quant strategies remove emotion and follow pre-defined rules for buying, holding, and selling. They can be implemented using the ETFs ranked above."));
+  var qmGuide=[
+    ["\uD83D\uDCCB","HOW TO READ:","Each strategy shows its backtested annual return and fee drag. Returns are gross of taxes and assume quarterly rebalancing. Fee drag is the annual cost of implementation using ETFs. Net return \u2248 gross return \u2212 fee drag."],
+    ["\u26A0\uFE0F","IMPORTANT:","Past backtested returns do not guarantee future performance. These strategies are well-documented in academic literature but can underperform for extended periods. Use them as systematic frameworks, not guaranteed outcomes."],
+    ["\uD83D\uDD04","IMPLEMENTATION:","Pick 1\u20132 strategies that align with your investment philosophy. Use the top-ranked ETFs above to implement them. Rebalance on a fixed schedule (quarterly or semi-annually) \u2014 not based on market conditions or emotions."]
+  ];
+  qmGuide.forEach(function(item){
+    var row4=h("div",{style:{display:"flex",gap:"6px",marginBottom:"6px",alignItems:"flex-start"}});
+    row4.appendChild(h("span",{style:{fontSize:"11px",flexShrink:"0"}},item[0]));
+    var txt4=h("div",{style:{fontSize:"10px",lineHeight:"1.5"}});
+    txt4.appendChild(h("span",{style:{fontWeight:"700",color:t.text}},item[1]+" "));
+    txt4.appendChild(h("span",{style:{color:t.ts}},item[2]));
+    row4.appendChild(txt4);
+    qmExp.appendChild(row4);
+  });
+  etfDiv.appendChild(qmExp);
+
   var sg2=h("div",{className:"strat-grid"});
   QUANT_STRATEGIES.forEach(function(qs,i){
     var c2=h("div",{className:"fade-in",style:{background:t.card,border:"1px solid "+t.border,borderRadius:"10px",padding:"12px",animationDelay:(i*30)+"ms"}});
@@ -1240,7 +1305,27 @@ function renderETF(){
     br.appendChild(bl);br.appendChild(sBar(e.comp,60));card.appendChild(br);grid.appendChild(card);
   });
   f.appendChild(grid);
-  f.appendChild(h("h3",{style:{fontSize:"15px",fontWeight:"600",margin:"20px 0 10px"}},"Proven Quant Strategies (Backtested)"));
+  f.appendChild(h("h3",{style:{fontSize:"15px",fontWeight:"600",margin:"20px 0 10px"}},"\u2697\uFE0F Proven Quant Strategies (Backtested)"));
+
+  // Quant methodology explanation
+  var qmExp2=h("div",{style:{background:t.surface,border:"1px solid "+t.border,borderRadius:"10px",padding:"12px 14px",marginBottom:"12px"}});
+  qmExp2.appendChild(h("p",{style:{margin:"0 0 8px",fontSize:"11px",color:t.ts,lineHeight:"1.7"}},"Systematic, rules-based strategies backtested across decades of market data. They remove emotion and follow pre-defined rules for buying, holding, and selling. Implement them using the ETFs ranked above."));
+  var qmG2=[
+    ["\uD83D\uDCCB","HOW TO READ:","Each strategy shows backtested annual return and fee drag. Net return \u2248 gross return \u2212 fee drag. Returns assume quarterly rebalancing."],
+    ["\u26A0\uFE0F","DISCLAIMER:","Past backtested returns do not guarantee future performance. Use these as systematic frameworks, not guaranteed outcomes."],
+    ["\uD83D\uDD04","IMPLEMENTATION:","Pick 1\u20132 strategies aligned with your philosophy. Use top-ranked ETFs to implement. Rebalance on a fixed schedule (quarterly or semi-annually)."]
+  ];
+  qmG2.forEach(function(item){
+    var row5=h("div",{style:{display:"flex",gap:"6px",marginBottom:"5px",alignItems:"flex-start"}});
+    row5.appendChild(h("span",{style:{fontSize:"11px",flexShrink:"0"}},item[0]));
+    var txt5=h("div",{style:{fontSize:"10px",lineHeight:"1.5"}});
+    txt5.appendChild(h("span",{style:{fontWeight:"700",color:t.text}},item[1]+" "));
+    txt5.appendChild(h("span",{style:{color:t.ts}},item[2]));
+    row5.appendChild(txt5);
+    qmExp2.appendChild(row5);
+  });
+  f.appendChild(qmExp2);
+
   var sg=h("div",{className:"strat-grid"});
   QUANT_STRATEGIES.forEach(function(s,i){
     var c=h("div",{className:"fade-in",style:{background:t.card,border:"1px solid "+t.border,borderRadius:"10px",padding:"12px",animationDelay:(i*30)+"ms"}});
@@ -1437,6 +1522,27 @@ function renderPrior(){
 // ======= STRATEGIES =======
 function renderStrat(){
   var t=T();var f=document.createDocumentFragment();
+
+  // Intro guide
+  var intro=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",marginBottom:"14px"}});
+  intro.appendChild(h("h3",{style:{margin:"0 0 6px",fontSize:"15px",fontWeight:"700"}},"\uD83C\uDFAF Understanding the Multi-Factor Strategy"));
+  intro.appendChild(h("p",{style:{margin:"0 0 10px",fontSize:"11px",color:t.ts,lineHeight:"1.7"}},"This screener combines 11 investment strategies from legendary investors and academics into a single composite score. Each strategy examines a different dimension of stock quality: value, momentum, financial health, and risk. No single factor works all the time \u2014 combining them creates a robust, all-weather scoring system."));
+  var introGuide=[
+    ["\uD83D\uDD22","HOW SCORING WORKS:","Each stock receives a score from every enabled strategy. Scores are weighted by your Settings percentages and summed into a composite. The top-scoring stocks become your picks. A stock ranking #1 is the best blend of value, quality, momentum, and safety according to YOUR chosen weights."],
+    ["\u2696\uFE0F","FACTOR DIVERSIFICATION:","Just as you diversify across stocks, diversifying across factors protects against any single strategy underperforming. Value can lag for years (2010\u20132020), then outperform dramatically. Momentum can crash during reversals. Combining them smooths returns over time."],
+    ["\uD83D\uDD27","CUSTOMIZE IN SETTINGS:","Every strategy below has a weight slider in the Settings tab. Read each strategy\u2019s \u201CWhen to Adjust\u201D section to understand when to increase or decrease its influence. The default weights reflect a balanced multi-factor approach."]
+  ];
+  introGuide.forEach(function(item){
+    var row=h("div",{style:{display:"flex",gap:"8px",marginBottom:"8px",alignItems:"flex-start"}});
+    row.appendChild(h("span",{style:{fontSize:"13px",flexShrink:"0",lineHeight:"1.4"}},item[0]));
+    var txt=h("div",{style:{fontSize:"11px",lineHeight:"1.6"}});
+    txt.appendChild(h("span",{style:{fontWeight:"700",color:t.text}},item[1]+" "));
+    txt.appendChild(h("span",{style:{color:t.ts}},item[2]));
+    row.appendChild(txt);
+    intro.appendChild(row);
+  });
+  f.appendChild(intro);
+
   STRAT_DETAILS.forEach(function(s,i){
     var c=h("div",{className:"fade-in",style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",marginBottom:"12px",animationDelay:(i*50)+"ms"}});
     var hd=h("div",{style:{display:"flex",alignItems:"center",gap:"8px",marginBottom:"10px"}});
@@ -1444,8 +1550,18 @@ function renderStrat(){
     hd.appendChild(h("h3",{style:{margin:"0",fontSize:"14px",fontWeight:"600"}},s.title));c.appendChild(hd);
     c.appendChild(h("div",{style:{fontSize:"10px",color:t.tm,textTransform:"uppercase",letterSpacing:"1px",marginBottom:"4px"}},"Why This Weight"));
     c.appendChild(h("p",{style:{margin:"0 0 12px",fontSize:"12px",color:t.ts,lineHeight:"1.6"}},s.why));
+    if(s.deep){
+      c.appendChild(h("div",{style:{fontSize:"10px",color:t.tm,textTransform:"uppercase",letterSpacing:"1px",marginBottom:"4px"}},"Deep Dive"));
+      c.appendChild(h("p",{style:{margin:"0 0 12px",fontSize:"11px",color:t.ts,lineHeight:"1.7"}},s.deep));
+    }
     c.appendChild(h("div",{style:{fontSize:"10px",color:t.tm,textTransform:"uppercase",letterSpacing:"1px",marginBottom:"4px"}},"Key Metrics"));
-    c.appendChild(h("p",{style:{margin:"0",fontSize:"12px",color:t.text,lineHeight:"1.5"}},s.met));
+    c.appendChild(h("p",{style:{margin:"0 0 12px",fontSize:"12px",color:t.text,lineHeight:"1.5"}},s.met));
+    if(s.use){
+      var useBox=h("div",{style:{padding:"8px 12px",background:t.accentGlow||t.surface,borderRadius:"8px",borderLeft:"3px solid "+t.accent}});
+      useBox.appendChild(h("div",{style:{fontSize:"10px",fontWeight:"700",color:t.accent,textTransform:"uppercase",letterSpacing:"1px",marginBottom:"3px"}},"\u2191\u2193 When to Adjust"));
+      useBox.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,lineHeight:"1.6"}},s.use));
+      c.appendChild(useBox);
+    }
     f.appendChild(c);
   });
   var ec=h("div",{className:"fade-in",style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",animationDelay:"250ms"}});
@@ -1462,9 +1578,54 @@ function renderStrat(){
 // ======= SETTINGS =======
 function renderSettings(){
   var t=T();var f=document.createDocumentFragment();
+  // Strategy Weight Guide
+  var swg=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",marginBottom:"14px",maxWidth:"600px"}});
+  swg.appendChild(h("h3",{style:{margin:"0 0 4px",fontSize:"15px",fontWeight:"700"}},"\uD83C\uDFAF How Strategy Weights Work"));
+  swg.appendChild(h("p",{style:{margin:"0 0 12px",fontSize:"11px",color:t.ts,lineHeight:"1.7"}},"Strategy weights control how the screener ranks stocks. Each weight determines how much influence a particular investment strategy has on the final composite score. Higher weight = more influence on which stocks rank in your top picks."));
+
+  var swGuide=[
+    ["\u2696\uFE0F","NORMALIZATION:","Weights auto-normalize to 100%. If you set Greenblatt to 50% and Tweedy to 50%, each gets exactly half the influence. Add a third strategy at 50% and all three normalize to 33% each. You can\u2019t break the system \u2014 just set relative preferences."],
+    ["\uD83D\uDCCA","VALUE TILT:","Boost Greenblatt (Magic Formula), Tweedy Browne, EV/EBIT, and Shareholder Yield for a deep value approach. This favors cheap stocks with strong earnings, low price-to-book, and high capital returns. Best in flat or recovering markets."],
+    ["\uD83D\uDE80","MOMENTUM TILT:","Boost Simons Quant and RSI Zone Filter to favor stocks with strong price trends entering at non-overbought levels. Momentum works best in trending bull markets but can underperform during reversals."],
+    ["\uD83C\uDFF0","QUALITY TILT:","Boost Munger Quality and Revenue Growth Consistency to favor companies with wide economic moats, consistent growth, and strong management. Quality stocks tend to outperform during bear markets and drawdowns."],
+    ["\uD83D\uDEE1\uFE0F","SAFETY TILT:","Boost Piotroski F-Score and Altman Z-Score to screen for financially healthy companies and avoid bankruptcies. Particularly useful in uncertain economic environments or when screening small-cap and emerging market stocks."],
+    ["\uD83C\uDFAF","CONTRARIAN TILT:","Boost Short Interest Contrarian to find stocks where moderate short selling (5\u201315% of float) combined with strong fundamentals signals a potential short squeeze or market mispricing."]
+  ];
+  swGuide.forEach(function(item){
+    var row=h("div",{style:{display:"flex",gap:"8px",marginBottom:"8px",alignItems:"flex-start"}});
+    row.appendChild(h("span",{style:{fontSize:"13px",flexShrink:"0",lineHeight:"1.4"}},item[0]));
+    var txt=h("div",{style:{fontSize:"11px",lineHeight:"1.6"}});
+    txt.appendChild(h("span",{style:{fontWeight:"700",color:t.text}},item[1]+" "));
+    txt.appendChild(h("span",{style:{color:t.ts}},item[2]));
+    row.appendChild(txt);
+    swg.appendChild(row);
+  });
+
+  // Quick reference table
+  var qref=h("div",{style:{padding:"10px 12px",background:t.surface,borderRadius:"8px",marginTop:"10px",borderLeft:"3px solid "+t.accent}});
+  qref.appendChild(h("div",{style:{fontSize:"11px",fontWeight:"700",color:t.accent,marginBottom:"6px"}},"\uD83D\uDCA1 Quick Presets"));
+  var presets=[
+    ["Balanced (Default)","Even mix of value, quality, and momentum \u2014 works in most markets"],
+    ["Deep Value","Greenblatt 30%, Tweedy 25%, EV/EBIT 15%, Piotroski 15%, Altman 15%"],
+    ["Growth Momentum","Simons 30%, RSI 20%, Munger 20%, RevGrowth 20%, ShYield 10%"],
+    ["Conservative Quality","Munger 30%, Piotroski 20%, Altman 20%, RevGrowth 15%, Tweedy 15%"]
+  ];
+  presets.forEach(function(p){
+    var pr=h("div",{style:{marginBottom:"4px",fontSize:"11px",lineHeight:"1.5"}});
+    pr.appendChild(h("span",{style:{fontWeight:"700",color:t.text}},p[0]+": "));
+    pr.appendChild(h("span",{style:{color:t.ts}},p[1]));
+    qref.appendChild(pr);
+  });
+  swg.appendChild(qref);
+  f.appendChild(swg);
+
   // Weights
   var wc=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",marginBottom:"12px",maxWidth:"600px"}});
   wc.appendChild(h("h3",{style:{margin:"0 0 12px",fontSize:"15px",fontWeight:"600"}},"Strategy Weights"));
+
+  // Per-strategy descriptions for slider labels
+  var wDesc={greenblatt:"Cheap stocks with high returns on capital",tweedy:"Deep value: low P/B, insider buying, dividends",munger:"Wide-moat quality companies at fair prices",simons:"Price momentum and statistical patterns",piotroski:"9-point financial health score",altman:"Bankruptcy risk filter (Z-Score)",rsi:"Avoid overbought entries, favor ideal zones",evEbit:"Enterprise value vs operating earnings",shYield:"Dividends + buybacks + debt paydown",revGrowth:"Consistent quarterly revenue growth",shortInt:"Moderate short interest as contrarian signal"};
+
     [{k:"greenblatt",l:"Greenblatt Magic Formula"},{k:"tweedy",l:"Tweedy Browne Value"},
    {k:"munger",l:"Munger Quality"},{k:"simons",l:"Simons Quant"},
    {k:"piotroski",l:"Piotroski F-Score"},{k:"altman",l:"Altman Z-Score"},
@@ -1472,25 +1633,28 @@ function renderSettings(){
    {k:"shYield",l:"Shareholder Yield"},{k:"revGrowth",l:"Revenue Growth Consistency"},
    {k:"shortInt",l:"Short Interest Contrarian"}].forEach(function(w){
     var d=h("div",{style:{marginBottom:"14px"}});
-    var r=h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:"5px"}});
+    var r=h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:"2px"}});
     r.appendChild(h("label",{style:{fontSize:"13px",fontWeight:"500"}},w.l));
     r.appendChild(h("span",{className:"mono",style:{fontSize:"13px",fontWeight:"600",color:t.accent}},S.weights[w.k]+"%"));
     d.appendChild(r);
+    if(wDesc[w.k]){d.appendChild(h("div",{style:{fontSize:"10px",color:t.tm,marginBottom:"4px"}},wDesc[w.k]))}
     d.appendChild(h("input",{type:"range",min:"0",max:"50",value:S.weights[w.k]+"",style:{width:"100%"},onInput:(function(key){return function(e){S.weights[key]=+e.target.value;render()}})(w.k)}));
     wc.appendChild(d);
   });
   var tot=(S.weights.greenblatt||0)+(S.weights.tweedy||0)+(S.weights.munger||0)+(S.weights.simons||0)+(S.weights.piotroski||0)+(S.weights.altman||0)+(S.weights.rsi||0)+(S.weights.evEbit||0)+(S.weights.shYield||0)+(S.weights.revGrowth||0)+(S.weights.shortInt||0);
   wc.appendChild(h("div",{style:{fontSize:"11px",color:t.tm,padding:"6px 10px",background:t.surface,borderRadius:"6px"}},"Total: "+tot+"% (auto-normalized to 100%)"));
   f.appendChild(wc);
-  // Picks
-  var pc=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",marginBottom:"12px",maxWidth:"600px"}});
-  pc.appendChild(h("h3",{style:{margin:"0 0 10px",fontSize:"15px",fontWeight:"600"}},"Number of Stock Picks"));
+
+  // Number of Stock Picks Guide
+  var npg=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",marginBottom:"12px",maxWidth:"600px"}});
+  npg.appendChild(h("h3",{style:{margin:"0 0 10px",fontSize:"15px",fontWeight:"600"}},"Number of Stock Picks"));
+  npg.appendChild(h("p",{style:{margin:"0 0 10px",fontSize:"11px",color:t.ts,lineHeight:"1.6"}},"Fewer picks (5\u20138) = higher conviction, more concentrated risk, higher potential outperformance. More picks (15\u201330) = broader diversification, lower individual stock risk, closer to index returns. Greenblatt\u2019s research shows ~90% of diversification benefit at 8\u201312 stocks across sectors."));
   var pr=h("div",{style:{display:"flex",gap:"8px",flexWrap:"wrap"}});
   [5,8,10,15,20,30].forEach(function(n){
     var a=S.numPicks===n;
     pr.appendChild(h("button",{style:{padding:"8px 16px",borderRadius:"8px",border:"1px solid "+(a?t.accent:t.border),background:a?t.accentGlow:"transparent",color:a?t.accent:t.ts,fontSize:"14px",fontWeight:"600",fontFamily:"'IBM Plex Mono',monospace"},onClick:function(){S.numPicks=n;render()}},n+""));
   });
-  pc.appendChild(pr);f.appendChild(pc);
+  npg.appendChild(pr);f.appendChild(npg);
   // Default region
   var rc=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",marginBottom:"12px",maxWidth:"600px"}});
   rc.appendChild(h("h3",{style:{margin:"0 0 10px",fontSize:"15px",fontWeight:"600"}},"Default Region"));
