@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#6366f1">
+<meta name="description" content="Mexxie Ultimate World Stock Investing - Multi-factor global stock screener">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<title>Mexxie Ultimate World Stock Investing</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:#0a0a0f;color:#e2e8f0;min-height:100vh;display:flex;align-items:center;justify-content:center}
+.container{max-width:600px;padding:40px 24px;text-align:center}
+h1{font-size:28px;font-weight:800;background:linear-gradient(135deg,#6366f1,#8b5cf6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px}
+.sub{font-size:12px;color:#64748b;letter-spacing:2px;text-transform:uppercase;margin-bottom:32px}
+.cards{display:grid;gap:16px;margin-bottom:32px}
+.card{display:block;padding:24px 20px;border-radius:16px;border:1px solid #2a2a3a;background:#12121a;text-decoration:none;color:inherit;transition:all .2s}
+.card:hover{border-color:#6366f1;transform:translateY(-2px);box-shadow:0 8px 24px rgba(99,102,241,0.15)}
+.card h2{font-size:18px;font-weight:700;margin-bottom:6px}
+.card p{font-size:13px;color:#94a3b8;line-height:1.5}
+.badge{display:inline-block;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600;margin-top:8px}
+.ft{background:rgba(160,82,45,0.15);color:#a0522d}
+.dark{background:rgba(99,102,241,0.15);color:#6366f1}
+.info{font-size:12px;color:#64748b;line-height:1.7;margin-top:16px}
+.info a{color:#6366f1;text-decoration:none}
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Mexxie Ultimate World Stock Investing</h1>
+<p class="sub">Greenblatt &middot; Tweedy Browne &middot; Munger &middot; Simons &middot; Global Quant</p>
+
+<div class="cards">
+  <a href="mexxie_v2_editorial_enhanced.html" class="card">
+    <h2>Editorial Enhanced</h2>
+    <p>FT-style light theme with US market access info for international stocks. Clean editorial design with comprehensive fundamental analysis.</p>
+    <span class="badge ft">FT Pink Theme</span>
+  </a>
+  <a href="mexxie_world_stock_enhanced.html" class="card">
+    <h2>World Stock Enhanced</h2>
+    <p>Dark-themed variant with obsidian, emerald, and neon palettes. Same powerful 11-factor multi-strategy screener engine.</p>
+    <span class="badge dark">Dark Themes</span>
+  </a>
+</div>
+
+<div class="info">
+  <strong>Features:</strong> 122 global stocks across 5 regions &middot; 11-factor composite scoring &middot;
+  Finnhub &amp; FMP API support &middot; Tax-aware buy/sell recommendations &middot;
+  24hr smart caching &middot; 9 premium themes &middot; Fully offline-capable PWA<br><br>
+  <strong>Install as App:</strong> On mobile, tap your browser menu and select "Add to Home Screen."
+  On desktop Chrome, click the install icon in the address bar.
+</div>
+</div>
+
+<script>
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('./sw.js');
+}
+</script>
+</body>
+</html>
