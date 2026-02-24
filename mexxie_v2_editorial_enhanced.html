@@ -845,7 +845,7 @@ var S={
   dataSeed:42,lastRefresh:new Date(),refreshCount:0,
   provider:(function(){try{return localStorage.getItem("mexxie_provider")||"finnhub"}catch(e){return"finnhub"}})(),
   apiKey:(function(){try{return localStorage.getItem("mexxie_api_key")||"gi9xNO7CWDJhG2xupgJaO0wuarOBRUei"}catch(e){return"gi9xNO7CWDJhG2xupgJaO0wuarOBRUei"}})(),
-  finnhubKey:(function(){try{return localStorage.getItem("mexxie_finnhub_key")||""}catch(e){return""}})(),
+  finnhubKey:(function(){try{return localStorage.getItem("mexxie_finnhub_key")||"d6ebj19r01qloir5vun0d6ebj19r01qloir5vung"}catch(e){return"d6ebj19r01qloir5vun0d6ebj19r01qloir5vung"}})(),
   loading:false,loadingMsg:"",lastSource:"Simulated",lastCalls:0,lastErrors:[],
   prior:[
     {t:"MSFT",n:"Microsoft Corp.",co:"\uD83C\uDDFA\uD83C\uDDF8",date:"2025-09-15",entry:398.2,curr:445.2,act:null},
@@ -1777,7 +1777,7 @@ function renderSettings(){
     background:t.surface,color:t.tm,fontSize:"11px",fontWeight:"600",fontFamily:"inherit"
   },onClick:function(){
     try{localStorage.removeItem("mexxie_ratios_cache");localStorage.removeItem("mexxie_finnhub_cache");localStorage.removeItem("mexxie_api_key");localStorage.removeItem("mexxie_finnhub_key")}catch(e){}
-    S.apiKey="gi9xNO7CWDJhG2xupgJaO0wuarOBRUei";S.finnhubKey="";
+    S.apiKey="gi9xNO7CWDJhG2xupgJaO0wuarOBRUei";S.finnhubKey="d6ebj19r01qloir5vun0d6ebj19r01qloir5vung";
     alert("All caches and keys cleared. Enter a new API key to continue.");render();
   }},"\uD83D\uDDD1 Clear All Cache");
   cacheRow.appendChild(clearBtn);
