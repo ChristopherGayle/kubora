@@ -837,9 +837,29 @@ function fetchLive(){
 }
 
 
+// ===================== MARKET REGIME PRESETS =====================
+var REGIME_PRESETS={
+  overvalued:{
+    label:"\uD83D\uDD34 Overvalued",desc:"CAPE >25 \u00B7 Buffett >120%",
+    weights:{greenblatt:12,tweedy:8,munger:28,simons:5,piotroski:18,altman:12,rsi:5,evEbit:3,shYield:4,revGrowth:4,shortInt:1},
+    rationale:"Quality + safety dominate. When markets are expensive, focus on companies with wide moats (Munger 28%) that can sustain earnings through corrections. Piotroski (18%) and Altman (12%) filter out financially fragile companies most likely to collapse. Momentum reduced to 5% since overbought markets are prone to reversals. RSI boosted to 5% to penalize stocks at extreme highs."
+  },
+  neutral:{
+    label:"\uD83D\uDFE1 Neutral",desc:"CAPE 15\u201325 \u00B7 Buffett 80\u2013120%",
+    weights:{greenblatt:20,tweedy:10,munger:18,simons:15,piotroski:12,altman:5,rsi:2,evEbit:4,shYield:8,revGrowth:5,shortInt:1},
+    rationale:"Balanced multi-factor. The default allocation spreads risk across all strategies. Value (Greenblatt 20%, Tweedy 10%) finds mispriced stocks. Quality (Munger 18%) ensures business durability. Momentum (Simons 15%) captures trends. Financial health (Piotroski 12%) screens out traps. This works in most normal market environments."
+  },
+  undervalued:{
+    label:"\uD83D\uDFE2 Undervalued",desc:"CAPE <15 \u00B7 Buffett <80%",
+    weights:{greenblatt:28,tweedy:18,munger:8,simons:12,piotroski:8,altman:3,rsi:3,evEbit:10,shYield:5,revGrowth:2,shortInt:3},
+    rationale:"Deep value + momentum for recovery. When markets are cheap, the biggest bargains offer the best forward returns. Greenblatt (28%) and Tweedy (18%) find the deepest value. EV/EBIT (10%) targets acquisition-quality bargains. Simons momentum (12%) rides the recovery trend. Safety filters reduced since even weak companies tend to survive in recovering markets. Short Interest (3%) boosted for short-squeeze potential in recovery rallies."
+  }
+};
+
 // ===================== STATE =====================
 var S={
   theme:"ft",tab:"screener",region:"Worldwide",
+  regime:"neutral",
   weights:{greenblatt:20,tweedy:10,munger:18,simons:15,piotroski:12,altman:5,rsi:2,evEbit:4,shYield:8,revGrowth:5,shortInt:1},
   numPicks:8,sector:"All",
   dataSeed:42,lastRefresh:new Date(),refreshCount:0,
@@ -1068,6 +1088,30 @@ function renderScreener(){
   sb.appendChild(ss);ct.appendChild(sb);
   ct.appendChild(h("div",{style:{marginLeft:"auto",fontSize:"11px",color:t.tm}},ranked.length+" stocks \u00B7 Top "+S.numPicks+" \u00B7 "+S.region));
   f.appendChild(ct);
+
+  // Compact Market Regime selector
+  var mrBar=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"10px",padding:"10px 12px",marginBottom:"8px",display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap"}});
+  mrBar.appendChild(h("span",{style:{fontSize:"10px",color:t.tm,textTransform:"uppercase",letterSpacing:"1px",fontWeight:"600"}},"\uD83C\uDF21\uFE0F Market Regime"));
+  var mrBtns=h("div",{style:{display:"flex",gap:"0",borderRadius:"8px",overflow:"hidden",border:"1px solid "+t.border}});
+  ["overvalued","neutral","undervalued"].forEach(function(rk){
+    var rp=REGIME_PRESETS[rk];
+    var active=S.regime===rk;
+    var accentC=rk==="overvalued"?"#dc2626":rk==="undervalued"?"#16a34a":t.accent;
+    mrBtns.appendChild(h("button",{style:{
+      padding:"6px 14px",border:"none",fontSize:"11px",fontWeight:"700",fontFamily:"inherit",
+      background:active?(accentC+"22"):"transparent",color:active?accentC:t.tm,
+      borderBottom:active?"2px solid "+accentC:"2px solid transparent",
+      transition:"all .2s",cursor:"pointer"
+    },onClick:function(){
+      S.regime=rk;
+      var w=REGIME_PRESETS[rk].weights;
+      Object.keys(w).forEach(function(k){S.weights[k]=w[k]});
+      render();
+    }},rp.label));
+  });
+  mrBar.appendChild(mrBtns);
+  mrBar.appendChild(h("span",{style:{fontSize:"9px",color:t.tm,marginLeft:"auto"}},REGIME_PRESETS[S.regime].desc));
+  f.appendChild(mrBar);
 
   // Weights bar
   var wb=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"10px",padding:"12px",marginBottom:"12px"}});
@@ -1578,6 +1622,68 @@ function renderStrat(){
 // ======= SETTINGS =======
 function renderSettings(){
   var t=T();var f=document.createDocumentFragment();
+
+  // ---- Market Regime Selector ----
+  var mrg=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",marginBottom:"14px",maxWidth:"600px"}});
+  mrg.appendChild(h("h3",{style:{margin:"0 0 4px",fontSize:"15px",fontWeight:"700"}},"\uD83C\uDF21\uFE0F Market Regime \u2014 One-Click Weight Adjustment"));
+  mrg.appendChild(h("p",{style:{margin:"0 0 12px",fontSize:"11px",color:t.ts,lineHeight:"1.7"}},"Select your assessment of current market conditions. This instantly adjusts all 11 strategy weights to an academically-backed allocation optimized for that regime. Based on Shiller CAPE ratio, Buffett Indicator (market cap/GDP), and equity risk premium research."));
+
+  // Educational explanation
+  var mrGuide=[
+    ["\uD83D\uDCCA","SHILLER CAPE RATIO:","The Cyclically Adjusted Price-to-Earnings ratio uses 10 years of inflation-adjusted earnings to smooth business cycles. Developed by Nobel laureate Robert Shiller. CAPE >25 historically predicts 4\u20135%/yr forward returns. CAPE <15 predicts 10\u201312%/yr. Current long-term average is ~17. This is the single most cited valuation metric in academic finance."],
+    ["\uD83C\uDFE6","BUFFETT INDICATOR:","Total US market cap divided by GDP. Warren Buffett called it \u201Cprobably the best single measure of where valuations stand.\u201D Above 120% = overvalued. 80\u2013120% = fair value. Below 80% = undervalued. Peaked at 200% in 2021 (extreme overvaluation) and hit 35% at the 2009 bottom (extreme undervaluation)."],
+    ["\uD83D\uDCC8","EQUITY RISK PREMIUM:","The excess return investors demand for holding stocks over risk-free bonds. When ERP is low (<3%), stocks offer little compensation for their risk = overvalued. When ERP is high (>6%), stocks generously compensate for risk = undervalued. Combines valuation with interest rate environment."],
+    ["\u2699\uFE0F","HOW IT WORKS:","Clicking a regime button instantly sets all 11 strategy weight sliders to an optimized allocation for that market environment. You can further fine-tune individual sliders after selecting a regime. The rationale for each regime\u2019s weight allocation is shown below the buttons."]
+  ];
+  mrGuide.forEach(function(item){
+    var row=h("div",{style:{display:"flex",gap:"8px",marginBottom:"8px",alignItems:"flex-start"}});
+    row.appendChild(h("span",{style:{fontSize:"13px",flexShrink:"0",lineHeight:"1.4"}},item[0]));
+    var txt=h("div",{style:{fontSize:"11px",lineHeight:"1.6"}});
+    txt.appendChild(h("span",{style:{fontWeight:"700",color:t.text}},item[1]+" "));
+    txt.appendChild(h("span",{style:{color:t.ts}},item[2]));
+    row.appendChild(txt);
+    mrg.appendChild(row);
+  });
+
+  // Regime buttons
+  var btnRow=h("div",{style:{display:"flex",gap:"0",marginTop:"14px",borderRadius:"10px",overflow:"hidden",border:"2px solid "+t.border}});
+  ["overvalued","neutral","undervalued"].forEach(function(rk){
+    var rp=REGIME_PRESETS[rk];
+    var active=S.regime===rk;
+    var bgColor=rk==="overvalued"?(active?"#dc262622":"transparent"):rk==="undervalued"?(active?"#16a34a22":"transparent"):(active?t.accentGlow:"transparent");
+    var borderColor=rk==="overvalued"?"#dc2626":rk==="undervalued"?"#16a34a":t.accent;
+    var textColor=active?borderColor:t.tm;
+    var btn=h("button",{style:{
+      flex:"1",padding:"12px 8px",border:"none",background:bgColor,
+      borderBottom:active?"3px solid "+borderColor:"3px solid transparent",
+      fontSize:"12px",fontWeight:"700",fontFamily:"inherit",color:textColor,
+      transition:"all .2s",cursor:"pointer"
+    },onClick:function(){
+      S.regime=rk;
+      var w=REGIME_PRESETS[rk].weights;
+      Object.keys(w).forEach(function(k){S.weights[k]=w[k]});
+      render();
+    }});
+    btn.appendChild(h("div",{style:{fontSize:"15px",marginBottom:"2px"}},rp.label));
+    btn.appendChild(h("div",{style:{fontSize:"9px",fontWeight:"500",opacity:"0.7"}},rp.desc));
+    btnRow.appendChild(btn);
+  });
+  mrg.appendChild(btnRow);
+
+  // Active regime rationale
+  var activeRegime=REGIME_PRESETS[S.regime];
+  var ratBox=h("div",{style:{marginTop:"12px",padding:"10px 12px",background:t.surface,borderRadius:"8px",borderLeft:"3px solid "+(S.regime==="overvalued"?"#dc2626":S.regime==="undervalued"?"#16a34a":t.accent)}});
+  ratBox.appendChild(h("div",{style:{fontSize:"11px",fontWeight:"700",color:S.regime==="overvalued"?"#dc2626":S.regime==="undervalued"?"#16a34a":t.accent,marginBottom:"4px"}},"Current: "+activeRegime.label+" \u2014 Weight Rationale"));
+  ratBox.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,lineHeight:"1.6"}},activeRegime.rationale));
+  mrg.appendChild(ratBox);
+
+  // Quick reference
+  var qvRef=h("div",{style:{marginTop:"10px",fontSize:"10px",color:t.tm,lineHeight:"1.5",padding:"8px 10px",background:t.surface,borderRadius:"6px"}});
+  qvRef.innerHTML="<strong>How to assess the current regime:</strong> Check <a href='https://www.multpl.com/shiller-pe' target='_blank' style='color:"+t.accent+"'>Shiller CAPE</a> (current vs 17 average) and <a href='https://www.currentmarketvaluation.com/models/buffett-indicator.php' target='_blank' style='color:"+t.accent+"'>Buffett Indicator</a>. If both signal the same regime, confidence is high. If they disagree, use Neutral.";
+  mrg.appendChild(qvRef);
+
+  f.appendChild(mrg);
+
   // Strategy Weight Guide
   var swg=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",marginBottom:"14px",maxWidth:"600px"}});
   swg.appendChild(h("h3",{style:{margin:"0 0 4px",fontSize:"15px",fontWeight:"700"}},"\uD83C\uDFAF How Strategy Weights Work"));
