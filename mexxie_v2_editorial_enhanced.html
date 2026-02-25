@@ -856,68 +856,140 @@ var REGIME_PRESETS={
   }
 };
 
-// ===================== MARKET VALUATION ENGINE =====================
-var MV_CACHE_KEY="mexxie_market_valuation";
+// ===================== REGION-AWARE MARKET VALUATION ENGINE =====================
 var MV_CACHE_DAYS=30; // Monthly refresh — consensus for slow-moving macro indicators
 
-function loadMVCache(){
-  try{var c=JSON.parse(localStorage.getItem(MV_CACHE_KEY));if(c&&c.ts&&(Date.now()-c.ts)<MV_CACHE_DAYS*86400000)return c}catch(e){}
+// Regional ETF proxies, CAPE adjustment factors, and valuation thresholds
+// Each region has historically different valuation norms
+var REGION_VAL_CONFIG={
+  "US":{
+    etf:"SPY",label:"US (S&P 500)",capeAdj:1.5,
+    capeTh:[15,25],buffTh:[80,120],erpTh:[3,6],
+    buffBase:183,buffRef:500, // When SPY=$500, Buffett ≈ 183%
+    note:"US market: world\u2019s largest, historically premium valuations"
+  },
+  "Europe":{
+    etf:"VGK",label:"Europe (FTSE Europe)",capeAdj:1.35,
+    capeTh:[12,18],buffTh:null,erpTh:[3,6],
+    note:"European markets historically trade at lower multiples than US due to slower growth, bank-heavy indices"
+  },
+  "Asia":{
+    etf:"VPL",label:"Asia-Pacific (FTSE Pacific)",capeAdj:1.4,
+    capeTh:[12,20],buffTh:null,erpTh:[3,6],
+    note:"Asia-Pacific spans Japan (value) to Australia (yield) to developing Asia (growth)"
+  },
+  "S. America":{
+    etf:"EWZ",label:"Latin America (Brazil proxy)",capeAdj:1.25,
+    capeTh:[8,14],buffTh:null,erpTh:[4,8],
+    note:"Emerging Latin America: higher yields, lower multiples, currency risk adds to required ERP"
+  },
+  "Africa":{
+    etf:"EZA",label:"Africa (South Africa proxy)",capeAdj:1.25,
+    capeTh:[8,14],buffTh:null,erpTh:[4,8],
+    note:"Frontier/emerging Africa: commodity-driven, structural growth potential, higher risk premium"
+  },
+  "Worldwide":{
+    etf:"VT",label:"Global (Total World Stock)",capeAdj:1.45,
+    capeTh:[14,22],buffTh:null,erpTh:[3,6],
+    note:"Market-cap weighted global index: ~60% US, ~15% Europe, ~12% EM, ~6% Japan, ~7% other",
+    blended:true,blendWeights:{"US":0.60,"Europe":0.15,"Asia":0.06,"S. America":0.07,"Africa":0.02}
+  }
+};
+
+function mvCacheKey(region){return"mexxie_mv_"+(region||"Worldwide").replace(/[^a-zA-Z]/g,"")}
+
+function loadMVCache(region){
+  try{var c=JSON.parse(localStorage.getItem(mvCacheKey(region)));if(c&&c.ts&&(Date.now()-c.ts)<MV_CACHE_DAYS*86400000)return c}catch(e){}
   return null;
 }
 
-async function fetchMarketValuation(forceRefresh){
-  if(!forceRefresh){var cached=loadMVCache();if(cached)return cached}
-  var key=S.finnhubKey;
-  if(!key)return null;
+async function fetchRegionValuation(regionKey,key){
+  var cfg=REGION_VAL_CONFIG[regionKey];if(!cfg)return null;
   try{
-    // Fetch SPY fundamentals + quote, and TLT for Treasury yield proxy
-    var results=await Promise.all([
-      fetch(FINNHUB_BASE+"/stock/metric?symbol=SPY&metric=all&token="+key).then(function(r){return r.json()}),
-      fetch(FINNHUB_BASE+"/quote?symbol=SPY&token="+key).then(function(r){return r.json()}),
+    var fetches=[
+      fetch(FINNHUB_BASE+"/stock/metric?symbol="+cfg.etf+"&metric=all&token="+key).then(function(r){return r.json()}),
+      fetch(FINNHUB_BASE+"/quote?symbol="+cfg.etf+"&token="+key).then(function(r){return r.json()}),
       fetch(FINNHUB_BASE+"/quote?symbol=TLT&token="+key).then(function(r){return r.json()})
-    ]);
-    var metrics=results[0],spyQuote=results[1],tltQuote=results[2];
+    ];
+    var results=await Promise.all(fetches);
+    var metrics=results[0],etfQuote=results[1],tltQuote=results[2];
     var m=metrics.metric||{};
-    // S&P 500 trailing P/E from SPY ETF
     var pe=m.peTTM||m.peBasicExclExtraTTM||m.peNormalizedAnnual||null;
-    var spyPrice=spyQuote.c||null;
-    // Approximate Shiller CAPE from trailing P/E
-    // CAPE uses 10yr inflation-adjusted earnings. In modern era of elevated profit margins,
-    // CAPE ≈ PE × 1.45-1.55. We use 1.5 as the midpoint. Clearly labeled as estimate.
-    var cape=pe?Math.round(pe*1.5*10)/10:null;
-    // Earnings Yield = inverse of P/E
+    var etfPrice=etfQuote.c||null;
+    var cape=pe?Math.round(pe*cfg.capeAdj*10)/10:null;
     var ey=pe?Math.round(100/pe*100)/100:null;
-    // 10Y Treasury yield approximation from TLT (20+ Year Treasury Bond ETF)
-    // TLT price has inverse relationship to long-term yields
-    // Regression: yield ≈ 13.2 - 0.09 × TLT_price (R² ≈ 0.92 for 2020-2025 range)
     var riskFree=null;
     if(tltQuote&&tltQuote.c){
       riskFree=Math.round((13.2-0.09*tltQuote.c)*100)/100;
       riskFree=Math.max(0.5,Math.min(8,riskFree));
     }
-    // Equity Risk Premium = Earnings Yield - Risk-Free Rate
     var erp=(ey&&riskFree)?Math.round((ey-riskFree)*100)/100:null;
-    // Buffett Indicator approximation
-    // S&P 500 represents ~85% of US market cap. Total US GDP ~$29T (2025).
-    // When SPY=$500, S&P 500 market cap ≈ $45T, total market ≈ $53T, Buffett ≈ 183%
-    // Linear scaling from known baseline
-    var buffett=spyPrice?Math.round(spyPrice/500*183):null;
-    // Signal for each metric
+    var buffett=null;
+    if(cfg.buffBase&&cfg.buffRef&&etfPrice){buffett=Math.round(etfPrice/cfg.buffRef*cfg.buffBase)}
+    // Signals using region-specific thresholds
     var signals={
-      cape:cape?(cape>25?"overvalued":cape<15?"undervalued":"neutral"):null,
-      buffett:buffett?(buffett>120?"overvalued":buffett<80?"undervalued":"neutral"):null,
-      erp:erp?(erp<3?"overvalued":erp>6?"undervalued":"neutral"):null
+      cape:cape?(cape>cfg.capeTh[1]?"overvalued":cape<cfg.capeTh[0]?"undervalued":"neutral"):null,
+      buffett:(buffett&&cfg.buffTh)?(buffett>cfg.buffTh[1]?"overvalued":buffett<cfg.buffTh[0]?"undervalued":"neutral"):null,
+      erp:erp?(erp<cfg.erpTh[0]?"overvalued":erp>cfg.erpTh[1]?"undervalued":"neutral"):null
     };
-    // Consensus = majority vote of available signals
     var votes={overvalued:0,neutral:0,undervalued:0};
     Object.values(signals).forEach(function(s){if(s)votes[s]++});
     var consensus="neutral";
     if(votes.overvalued>votes.neutral&&votes.overvalued>=votes.undervalued)consensus="overvalued";
     else if(votes.undervalued>votes.neutral&&votes.undervalued>votes.overvalued)consensus="undervalued";
-    var result={pe:pe,cape:cape,ey:ey,riskFree:riskFree,erp:erp,buffett:buffett,spyPrice:spyPrice,signals:signals,consensus:consensus,ts:Date.now()};
-    try{localStorage.setItem(MV_CACHE_KEY,JSON.stringify(result))}catch(e){}
-    return result;
+    return{region:regionKey,pe:pe,cape:cape,ey:ey,riskFree:riskFree,erp:erp,buffett:buffett,etfPrice:etfPrice,etf:cfg.etf,label:cfg.label,signals:signals,consensus:consensus,capeTh:cfg.capeTh,buffTh:cfg.buffTh,erpTh:cfg.erpTh,note:cfg.note,ts:Date.now()};
   }catch(e){return null}
+}
+
+async function fetchMarketValuation(forceRefresh){
+  var region=S.region||"Worldwide";
+  if(!forceRefresh){var cached=loadMVCache(region);if(cached)return cached}
+  var key=S.finnhubKey;if(!key)return null;
+  var cfg=REGION_VAL_CONFIG[region];
+  if(!cfg)cfg=REGION_VAL_CONFIG["Worldwide"];
+  // For Worldwide with blended approach: fetch all regional ETFs and weight them
+  if(cfg.blended){
+    try{
+      var regionKeys=Object.keys(cfg.blendWeights);
+      var regResults=await Promise.all(regionKeys.map(function(rk){return fetchRegionValuation(rk,key)}));
+      // Calculate weighted CAPE, ERP
+      var wCape=0,wErp=0,wPe=0,totalW=0,allSignals=[];
+      regResults.forEach(function(rr,i){
+        if(!rr)return;
+        var w=cfg.blendWeights[regionKeys[i]];
+        if(rr.cape){wCape+=rr.cape*w;totalW+=w}
+        if(rr.erp)wErp+=rr.erp*w;
+        if(rr.pe)wPe+=rr.pe*w;
+        allSignals.push({region:regionKeys[i],consensus:rr.consensus,cape:rr.cape,weight:w});
+      });
+      var blendedCape=totalW>0?Math.round(wCape/totalW*10)/10:null;
+      var blendedPe=totalW>0?Math.round(wPe/totalW*10)/10:null;
+      var blendedEy=blendedPe?Math.round(100/blendedPe*100)/100:null;
+      var blendedErp=totalW>0?Math.round(wErp/totalW*100)/100:null;
+      // Also fetch VT directly for the ETF price
+      var vtResp=await fetch(FINNHUB_BASE+"/quote?symbol=VT&token="+key);
+      var vtData=await vtResp.json();
+      var vtPrice=vtData.c||null;
+      // Signals using Worldwide thresholds
+      var signals={
+        cape:blendedCape?(blendedCape>cfg.capeTh[1]?"overvalued":blendedCape<cfg.capeTh[0]?"undervalued":"neutral"):null,
+        buffett:null,
+        erp:blendedErp?(blendedErp<cfg.erpTh[0]?"overvalued":blendedErp>cfg.erpTh[1]?"undervalued":"neutral"):null
+      };
+      var votes={overvalued:0,neutral:0,undervalued:0};
+      Object.values(signals).forEach(function(s){if(s)votes[s]++});
+      var consensus="neutral";
+      if(votes.overvalued>votes.neutral&&votes.overvalued>=votes.undervalued)consensus="overvalued";
+      else if(votes.undervalued>votes.neutral&&votes.undervalued>votes.overvalued)consensus="undervalued";
+      var result={region:"Worldwide",pe:blendedPe,cape:blendedCape,ey:blendedEy,riskFree:regResults[0]?regResults[0].riskFree:null,erp:blendedErp,buffett:null,etfPrice:vtPrice,etf:"VT",label:cfg.label,signals:signals,consensus:consensus,capeTh:cfg.capeTh,buffTh:null,erpTh:cfg.erpTh,note:cfg.note,regionalBreakdown:allSignals,ts:Date.now()};
+      try{localStorage.setItem(mvCacheKey("Worldwide"),JSON.stringify(result))}catch(e){}
+      return result;
+    }catch(e){return null}
+  }
+  // Single-region fetch
+  var result=await fetchRegionValuation(region,key);
+  if(result){try{localStorage.setItem(mvCacheKey(region),JSON.stringify(result))}catch(e){}}
+  return result;
 }
 
 function renderValuationBanner(t,compact){
@@ -927,37 +999,39 @@ function renderValuationBanner(t,compact){
   var sigLabel=function(sig){return sig==="overvalued"?"\uD83D\uDD34 Overvalued":sig==="undervalued"?"\uD83D\uDFE2 Undervalued":"\uD83D\uDFE1 Neutral"};
   var conColor=sigColor(mv.consensus);
   var banner=h("div",{style:{background:t.card,border:"2px solid "+conColor+"44",borderRadius:"12px",padding:compact?"10px 14px":"14px 16px",marginBottom:"12px"}});
-  // Header
+  // Header with region label
   var hdr=h("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:"8px",marginBottom:compact?"8px":"10px"}});
-  var hdrLeft=h("div",{style:{display:"flex",alignItems:"center",gap:"8px"}});
+  var hdrLeft=h("div",{style:{display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"}});
   hdrLeft.appendChild(h("span",{style:{fontSize:"16px"}},"\uD83C\uDF21\uFE0F"));
-  hdrLeft.appendChild(h("span",{style:{fontSize:compact?"13px":"14px",fontWeight:"700",color:t.text}},"Live Market Valuation"));
+  hdrLeft.appendChild(h("span",{style:{fontSize:compact?"13px":"14px",fontWeight:"700",color:t.text}},(mv.label||"Market")+" Valuation"));
   hdrLeft.appendChild(h("span",{style:{fontSize:"12px",fontWeight:"700",color:conColor,padding:"2px 10px",borderRadius:"12px",background:conColor+"18"}},sigLabel(mv.consensus)));
+  if(mv.etf)hdrLeft.appendChild(h("span",{style:{fontSize:"9px",color:t.tm,padding:"2px 6px",borderRadius:"4px",background:t.surface}},mv.etf));
   hdr.appendChild(hdrLeft);
-  // Cache age
   var age=Math.round((Date.now()-mv.ts)/86400000);
   var hdrRight=h("div",{style:{display:"flex",alignItems:"center",gap:"8px"}});
-  hdrRight.appendChild(h("span",{style:{fontSize:"9px",color:t.tm}},age<1?"Updated today":"Updated "+age+"d ago \u00B7 Next: "+(MV_CACHE_DAYS-age)+"d"));
+  hdrRight.appendChild(h("span",{style:{fontSize:"9px",color:t.tm}},age<1?"Updated today":"Updated "+age+"d ago"));
   var refBtn=h("button",{style:{padding:"3px 10px",borderRadius:"6px",border:"1px solid "+t.border,background:t.surface,color:t.tm,fontSize:"10px",fontWeight:"600",fontFamily:"inherit",cursor:"pointer"},onClick:function(){
     fetchMarketValuation(true).then(function(r){if(r){S.marketVal=r;render()}});
   }},"\u21BB Refresh");
   hdrRight.appendChild(refBtn);
   hdr.appendChild(hdrRight);
   banner.appendChild(hdr);
-  // Three metric gauges
-  var gauges=h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:compact?"8px":"10px",marginBottom:compact?"8px":"12px"}});
-  var metrics=[
-    {label:"Shiller CAPE",value:mv.cape?mv.cape.toFixed(1):"--",signal:mv.signals.cape,
-     ranges:"<15 cheap \u00B7 15\u201325 fair \u00B7 >25 expensive",
-     icon:"\uD83D\uDCCA",src:"multpl.com/shiller-pe"},
-    {label:"Buffett Indicator",value:mv.buffett?mv.buffett+"%":"--",signal:mv.signals.buffett,
-     ranges:"<80% cheap \u00B7 80\u2013120% fair \u00B7 >120% expensive",
-     icon:"\uD83C\uDFE6",src:"currentmarketvaluation.com"},
-    {label:"Equity Risk Premium",value:mv.erp?mv.erp.toFixed(2)+"%":"--",signal:mv.signals.erp,
-     ranges:">6% cheap \u00B7 3\u20136% fair \u00B7 <3% expensive",
-     icon:"\uD83D\uDCC8",src:""}
+  // Three metric gauges with region-appropriate thresholds
+  var gauges=h("div",{style:{display:"grid",gridTemplateColumns:mv.buffett?"1fr 1fr 1fr":"1fr 1fr",gap:compact?"8px":"10px",marginBottom:compact?"8px":"12px"}});
+  var cTh=mv.capeTh||[15,25];var eTh=mv.erpTh||[3,6];var bTh=mv.buffTh||[80,120];
+  var metArr=[
+    {label:"Est. CAPE",value:mv.cape?mv.cape.toFixed(1):"--",signal:mv.signals.cape,
+     ranges:"<"+cTh[0]+" cheap \u00B7 "+cTh[0]+"\u2013"+cTh[1]+" fair \u00B7 >"+cTh[1]+" expensive",icon:"\uD83D\uDCCA"}
   ];
-  metrics.forEach(function(mt){
+  if(mv.buffett&&mv.buffTh){
+    metArr.push({label:"Buffett Ind.",value:mv.buffett+"%",signal:mv.signals.buffett,
+      ranges:"<"+bTh[0]+"% cheap \u00B7 "+bTh[0]+"\u2013"+bTh[1]+"% fair \u00B7 >"+bTh[1]+"% expensive",icon:"\uD83C\uDFE6"});
+  }
+  metArr.push({label:"Equity Risk Prem.",value:mv.erp?mv.erp.toFixed(2)+"%":"--",signal:mv.signals.erp,
+    ranges:">"+eTh[1]+"% cheap \u00B7 "+eTh[0]+"\u2013"+eTh[1]+"% fair \u00B7 <"+eTh[0]+"% expensive",icon:"\uD83D\uDCC8"});
+  // Adjust grid for 2 vs 3 columns
+  if(metArr.length===2)gauges.style.gridTemplateColumns="1fr 1fr";
+  metArr.forEach(function(mt){
     var g=h("div",{style:{background:t.surface,borderRadius:"8px",padding:"8px 10px",borderTop:"3px solid "+sigColor(mt.signal)}});
     g.appendChild(h("div",{style:{fontSize:"9px",color:t.tm,textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:"4px"}},mt.icon+" "+mt.label));
     g.appendChild(h("div",{className:"mono",style:{fontSize:compact?"16px":"20px",fontWeight:"700",color:sigColor(mt.signal)}},mt.value));
@@ -966,19 +1040,31 @@ function renderValuationBanner(t,compact){
     gauges.appendChild(g);
   });
   banner.appendChild(gauges);
+  // Regional breakdown for Worldwide
+  if(!compact&&mv.regionalBreakdown&&mv.regionalBreakdown.length>0){
+    var rbDiv=h("div",{style:{display:"flex",gap:"6px",flexWrap:"wrap",marginBottom:"8px"}});
+    rbDiv.appendChild(h("span",{style:{fontSize:"9px",color:t.tm,fontWeight:"600"}},"Regional signals:"));
+    mv.regionalBreakdown.forEach(function(rb){
+      if(!rb.cape)return;
+      var rc=sigColor(rb.consensus);
+      rbDiv.appendChild(h("span",{style:{fontSize:"9px",padding:"2px 6px",borderRadius:"4px",background:rc+"15",color:rc,fontWeight:"600"}},rb.region+" CAPE:"+rb.cape.toFixed(0)+" "+(Math.round(rb.weight*100))+"%"));
+    });
+    banner.appendChild(rbDiv);
+  }
   // Underlying data
   if(!compact){
     var dataRow=h("div",{style:{display:"flex",gap:"12px",flexWrap:"wrap",fontSize:"10px",color:t.tm,marginBottom:"10px"}});
-    if(mv.spyPrice)dataRow.appendChild(h("span",null,"S&P 500: $"+mv.spyPrice.toFixed(0)));
+    if(mv.etfPrice)dataRow.appendChild(h("span",null,mv.etf+": $"+mv.etfPrice.toFixed(2)));
     if(mv.pe)dataRow.appendChild(h("span",null,"Trailing P/E: "+mv.pe.toFixed(1)+"x"));
     if(mv.ey)dataRow.appendChild(h("span",null,"Earnings Yield: "+mv.ey.toFixed(2)+"%"));
     if(mv.riskFree)dataRow.appendChild(h("span",null,"~10Y Yield: "+mv.riskFree.toFixed(2)+"%"));
     banner.appendChild(dataRow);
+    if(mv.note)banner.appendChild(h("div",{style:{fontSize:"9px",color:t.tm,marginBottom:"6px",fontStyle:"italic"}},mv.note));
   }
   // Apply regime suggestion
   if(mv.consensus!==S.regime){
-    var sugBox=h("div",{style:{display:"flex",alignItems:"center",gap:"10px",padding:"8px 12px",background:conColor+"12",borderRadius:"8px",border:"1px solid "+conColor+"33"}});
-    sugBox.appendChild(h("span",{style:{fontSize:"11px",color:t.ts}},"\u26A1 Data suggests "+sigLabel(mv.consensus)+" regime"));
+    var sugBox=h("div",{style:{display:"flex",alignItems:"center",gap:"10px",padding:"8px 12px",background:conColor+"12",borderRadius:"8px",border:"1px solid "+conColor+"33",flexWrap:"wrap"}});
+    sugBox.appendChild(h("span",{style:{fontSize:"11px",color:t.ts}},"\u26A1 "+(mv.region||"Market")+" data suggests "+sigLabel(mv.consensus)));
     sugBox.appendChild(h("button",{style:{
       padding:"5px 14px",borderRadius:"6px",border:"1px solid "+conColor,
       background:conColor+"22",color:conColor,fontSize:"11px",fontWeight:"700",
@@ -991,11 +1077,10 @@ function renderValuationBanner(t,compact){
     }},"Apply "+REGIME_PRESETS[mv.consensus].label+" Weights"));
     banner.appendChild(sugBox);
   }else{
-    banner.appendChild(h("div",{style:{fontSize:"10px",color:conColor,fontWeight:"600"}},"\u2713 Your regime selection matches market data"));
+    banner.appendChild(h("div",{style:{fontSize:"10px",color:conColor,fontWeight:"600"}},"\u2713 Regime matches "+(mv.region||"market")+" valuation data"));
   }
-  // Disclaimer
   if(!compact){
-    banner.appendChild(h("div",{style:{fontSize:"9px",color:t.tm,marginTop:"8px",lineHeight:"1.4",fontStyle:"italic"}},"Estimates derived from SPY P/E, TLT yield proxy, and S&P 500 market cap scaling. Verify at multpl.com/shiller-pe and currentmarketvaluation.com. Refreshed monthly \u2014 these indicators move slowly. Not investment advice."));
+    banner.appendChild(h("div",{style:{fontSize:"9px",color:t.tm,marginTop:"8px",lineHeight:"1.4",fontStyle:"italic"}},"Estimates from "+mv.etf+" P/E \u00D7 region-adjusted CAPE factor, TLT yield proxy. Each region has different historic valuation norms"+(mv.region==="Worldwide"?" (blended from US 60%, Europe 15%, EM 12%, Asia 6%, Other 7%)":"")+". Refreshed monthly. Not investment advice."));
   }
   return banner;
 }
@@ -1086,7 +1171,7 @@ function regionBar(){
     var active=S.region===r;
     var flag=REGION_MAP[r];
     var label=flag?flag+" "+r:"\uD83C\uDF10 "+r;
-    bar.appendChild(h("button",{style:{background:active?t.accent:"transparent",color:active?"#fff":t.ts,borderRight:"1px solid "+t.border},onClick:function(){S.region=r;render()}},label));
+    bar.appendChild(h("button",{style:{background:active?t.accent:"transparent",color:active?"#fff":t.ts,borderRight:"1px solid "+t.border},onClick:function(){S.region=r;S.marketVal=loadMVCache(r);render();if(!S.marketVal&&S.finnhubKey){fetchMarketValuation(false).then(function(mv){if(mv){S.marketVal=mv;render()}})}}},label));
   });
   return bar;
 }
