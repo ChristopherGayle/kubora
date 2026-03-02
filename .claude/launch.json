@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "mexxie-stock-app",
+      "runtimeExecutable": "/opt/homebrew/bin/npx",
+      "runtimeArgs": ["serve", "-l", "8080", "--no-clipboard"],
+      "port": 8080
+    }
+  ]
+}
