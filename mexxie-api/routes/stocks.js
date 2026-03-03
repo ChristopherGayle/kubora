@@ -5,21 +5,29 @@ const db = require('../db');
 // GET /api/stocks — list stock universe
 router.get('/', async (req, res) => {
   const { region, sector, limit } = req.query;
-  let where = [];
-  if (region && region !== 'Worldwide') where.push("region = '" + db.esc(region) + "'");
-  if (sector && sector !== 'All') where.push("sector = '" + db.esc(sector) + "'");
+  let sql;
 
-  let sql = 'SELECT ticker, name, sector, region, country_flag, price, market_cap_bn, active ' +
-    'FROM prism_stock_universe';
-  if (where.length) sql += ' WHERE ' + where.join(' AND ');
-  sql += ' LATEST ON ts PARTITION BY ticker';
-  if (limit) sql += ' LIMIT ' + parseInt(limit);
-  sql += ';';
+  if (db.isPg) {
+    let where = ['active = true'];
+    if (region && region !== 'Worldwide') where.push("region = '" + db.esc(region) + "'");
+    if (sector && sector !== 'All') where.push("sector = '" + db.esc(sector) + "'");
+    sql = 'SELECT DISTINCT ON (ticker) ticker, name, sector, region, country_flag, price, market_cap_bn, active ' +
+      'FROM prism_stock_universe WHERE ' + where.join(' AND ') + ' ORDER BY ticker, ts DESC';
+    if (limit) sql = 'SELECT * FROM (' + sql + ') sub LIMIT ' + parseInt(limit);
+  } else {
+    let where = [];
+    if (region && region !== 'Worldwide') where.push("region = '" + db.esc(region) + "'");
+    if (sector && sector !== 'All') where.push("sector = '" + db.esc(sector) + "'");
+    sql = 'SELECT ticker, name, sector, region, country_flag, price, market_cap_bn, active FROM prism_stock_universe';
+    if (where.length) sql += ' WHERE ' + where.join(' AND ');
+    sql += ' LATEST ON ts PARTITION BY ticker';
+    if (limit) sql += ' LIMIT ' + parseInt(limit);
+    sql += ';';
+  }
 
   const result = await db.query(sql);
   if (!result.ok) return res.status(503).json({ error: result.error, rows: [] });
 
-  // Filter out inactive stocks and map to Prism format
   const stocks = result.rows
     .filter(r => r.active !== false)
     .map(r => ({
@@ -29,9 +37,16 @@ router.get('/', async (req, res) => {
   res.json(stocks);
 });
 
-// GET /api/stocks/count — stock counts by region/sector
+// GET /api/stocks/count
 router.get('/count', async (req, res) => {
-  const sql = "SELECT region, count() cnt FROM prism_stock_universe LATEST ON ts PARTITION BY ticker GROUP BY region;";
+  let sql;
+  if (db.isPg) {
+    sql = "SELECT region, count(*) as cnt FROM (" +
+      "SELECT DISTINCT ON (ticker) ticker, region FROM prism_stock_universe WHERE active = true ORDER BY ticker, ts DESC" +
+      ") sub GROUP BY region ORDER BY cnt DESC";
+  } else {
+    sql = "SELECT region, count() cnt FROM prism_stock_universe LATEST ON ts PARTITION BY ticker GROUP BY region;";
+  }
   const result = await db.query(sql);
   if (!result.ok) return res.status(503).json({ error: result.error });
   res.json(result.rows);
@@ -43,37 +58,37 @@ router.post('/', async (req, res) => {
   if (!stocks || !Array.isArray(stocks) || stocks.length === 0) {
     return res.status(400).json({ error: 'stocks array required' });
   }
-
-  let inserted = 0;
-  let errors = [];
-
-  // Batch insert in chunks of 50
+  let inserted = 0, errors = [];
   for (let i = 0; i < stocks.length; i += 50) {
     const chunk = stocks.slice(i, i + 50);
     const values = chunk.map(s =>
-      "('" + db.esc(s.t) + "','" + db.esc(s.n) + "','" + db.esc(s.s) + "','" +
-      db.esc(s.r) + "','" + db.esc(s.co) + "'," + (s.p || 0) + ',' +
-      (s.mc || 0) + ',true,now())'
+      "(NOW(),'" + db.esc(s.t) + "','" + db.esc(s.n) + "','" + db.esc(s.s) + "','" +
+      db.esc(s.r) + "','" + db.esc(s.co) + "'," + (s.p || 0) + ',' + (s.mc || 0) + ',true)'
     ).join(',');
-
-    const sql = 'INSERT INTO prism_stock_universe ' +
-      '(ticker, name, sector, region, country_flag, price, market_cap_bn, active, ts) VALUES ' +
-      values + ';';
+    const sql = 'INSERT INTO prism_stock_universe (ts,ticker,name,sector,region,country_flag,price,market_cap_bn,active) VALUES ' + values + ';';
     const result = await db.exec(sql);
     if (result.ok) inserted += chunk.length;
     else errors.push(result.error);
   }
-
   res.json({ inserted, errors: errors.length ? errors : undefined });
 });
 
-// POST /api/stocks/import-etl — pull new stocks from existing ETL pipeline tables
-// Safe to run repeatedly; only inserts tickers not already in prism_stock_universe
+// POST /api/stocks/import-etl — pull from QuestDB ETL tables (local dev only)
 router.post('/import-etl', async (req, res) => {
-  const REGION_FLAGS = {
-    'US': '🇺🇸', 'Europe': '🇪🇺', 'Asia': '🌏',
-    'S. America': '🇧🇷', 'Africa': '🇿🇦'
-  };
+  if (db.isPg) {
+    // ETL tables only exist in local QuestDB — return current cloud count
+    const countRes = await db.query(
+      "SELECT COUNT(*) as cnt FROM (SELECT DISTINCT ON (ticker) ticker FROM prism_stock_universe WHERE active = true ORDER BY ticker, ts DESC) sub"
+    );
+    const total = countRes.ok ? parseInt(countRes.rows[0].cnt) : 0;
+    return res.json({
+      inserted: 0, skipped: total, total,
+      message: 'ETL import requires local QuestDB. Cloud has ' + total + ' curated stocks.'
+    });
+  }
+
+  // QuestDB path
+  const REGION_FLAGS = { 'US':'🇺🇸','Europe':'🇪🇺','Asia':'🌏','S. America':'🇧🇷','Africa':'🇿🇦' };
   const SECTOR_MAP = {
     'Technology':'Technology','Healthcare':'Healthcare','Finance':'Finance',
     'Financial Services':'Finance','Consumer':'Consumer',
@@ -82,28 +97,18 @@ router.post('/import-etl', async (req, res) => {
     'Materials':'Materials','Utilities':'Utilities','Real Estate':'Real Estate',
     'Telecom':'Telecom','Communication Services':'Telecom','ETF':'Other'
   };
-  function mapSector(raw) {
-    if (!raw) return 'Other';
-    return SECTOR_MAP[raw] || 'Other';
-  }
+  function mapSector(raw) { return SECTOR_MAP[raw] || 'Other'; }
 
   try {
-    // 1. Get existing tickers
-    const existingRes = await db.query(
-      'SELECT ticker FROM prism_stock_universe LATEST ON ts PARTITION BY ticker'
-    );
-    const existingSymbols = new Set(
-      existingRes.ok ? existingRes.rows.map(r => r.ticker) : []
-    );
+    const existingRes = await db.query('SELECT ticker FROM prism_stock_universe LATEST ON ts PARTITION BY ticker');
+    const existingSymbols = new Set(existingRes.ok ? existingRes.rows.map(r => r.ticker) : []);
 
-    // 2. Query ETL join
     const etlSQL = `
       SELECT s.symbol, s.name, s.sector, s.region, dp.close
       FROM (SELECT symbol, name, sector, region FROM stocks LATEST ON update_time PARTITION BY symbol) s
       JOIN (SELECT symbol, close FROM daily_prices LATEST ON timestamp PARTITION BY symbol) dp
       ON s.symbol = dp.symbol
-      WHERE dp.close > 1.0
-      AND s.region IN ('US', 'Europe', 'Asia', 'S. America', 'Africa')
+      WHERE dp.close > 1.0 AND s.region IN ('US', 'Europe', 'Asia', 'S. America', 'Africa')
       ORDER BY s.region, dp.close DESC
     `;
     const etlRes = await db.query(etlSQL);
@@ -111,34 +116,24 @@ router.post('/import-etl', async (req, res) => {
 
     const newStocks = etlRes.rows.filter(r => !existingSymbols.has(r.symbol));
     if (newStocks.length === 0) {
-      const total = existingSymbols.size;
-      return res.json({ inserted: 0, skipped: etlRes.rows.length, total, message: 'Already up to date' });
+      return res.json({ inserted: 0, skipped: etlRes.rows.length, total: existingSymbols.size, message: 'Already up to date' });
     }
 
-    // 3. Insert in batches of 100
-    let inserted = 0; let errors = [];
+    let inserted = 0, errors = [];
     for (let i = 0; i < newStocks.length; i += 100) {
       const batch = newStocks.slice(i, i + 100);
       const values = batch.map(r => {
-        const sector = mapSector(r.sector);
-        const flag = REGION_FLAGS[r.region] || '🌍';
         const price = +(+r.close).toFixed(2);
-        return `(now(),'${db.esc(r.symbol)}','${db.esc(r.name)}','${sector}','${r.region}','${flag}',${price},0,true)`;
+        return `(now(),'${db.esc(r.symbol)}','${db.esc(r.name)}','${mapSector(r.sector)}','${r.region}','${REGION_FLAGS[r.region]||'🌍'}',${price},0,true)`;
       }).join(',');
-      const sql = `INSERT INTO prism_stock_universe (ts,ticker,name,sector,region,country_flag,price,market_cap_bn,active) VALUES ${values}`;
-      const result = await db.exec(sql);
+      const result = await db.exec(`INSERT INTO prism_stock_universe (ts,ticker,name,sector,region,country_flag,price,market_cap_bn,active) VALUES ${values}`);
       if (result.ok) inserted += batch.length;
       else errors.push(result.error);
     }
 
-    // 4. Return counts by region
-    const countRes = await db.query(
-      'SELECT region, count() cnt FROM prism_stock_universe LATEST ON ts PARTITION BY ticker GROUP BY region ORDER BY count() DESC'
-    );
+    const countRes = await db.query('SELECT region, count() cnt FROM prism_stock_universe LATEST ON ts PARTITION BY ticker GROUP BY region ORDER BY count() DESC');
     const breakdown = countRes.ok ? countRes.rows : [];
-    const total = breakdown.reduce((s, r) => s + r.cnt, 0);
-
-    res.json({ inserted, skipped: existingSymbols.size, total, breakdown, errors: errors.length ? errors : undefined });
+    res.json({ inserted, skipped: existingSymbols.size, total: breakdown.reduce((s,r)=>s+r.cnt,0), breakdown, errors: errors.length ? errors : undefined });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
