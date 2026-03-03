@@ -83,11 +83,17 @@ var THEMES={
 };
 var SECTORS=["Technology","Healthcare","Finance","Consumer","Energy","Industrial","Materials","Utilities","Real Estate","Telecom","Other"];
 // ===================== API CONFIGURATION =====================
-var API_BASE='http://localhost:3001/api';
+// Auto-detect: localhost → local API on 3001; remote → use saved Railway URL from Settings
+var API_BASE=(function(){
+  try{var saved=localStorage.getItem('mexxie_api_url');if(saved&&saved.trim())return saved.trim().replace(/\/$/,'')+'/api';}catch(e){}
+  var h=window.location.hostname;
+  return(h==='localhost'||h==='127.0.0.1')?'http://localhost:3001/api':'';
+})();
 var API_AVAILABLE=false;
 
 async function checkAPI(){
-  try{var r=await fetch(API_BASE+'/health',{signal:AbortSignal.timeout(2000)});var d=await r.json();API_AVAILABLE=d.status==='ok';}catch(e){API_AVAILABLE=false;}
+  if(!API_BASE){API_AVAILABLE=false;return;}
+  try{var r=await fetch(API_BASE+'/health',{signal:AbortSignal.timeout(3000)});var d=await r.json();API_AVAILABLE=d.status==='ok'||d.status==='degraded';}catch(e){API_AVAILABLE=false;}
 }
 async function loadStockUniverse(){
   if(!API_AVAILABLE)return;
@@ -1389,6 +1395,39 @@ function renderSettings(){
     btn.appendChild(cols);tg.appendChild(btn);
   });
   tc.appendChild(tg);f.appendChild(tc);
+
+  // ── API Server URL (Railway / local) ─────────────────────────────
+  var urlSection=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",maxWidth:"600px",marginTop:"12px",marginBottom:"14px"}});
+  urlSection.appendChild(h("h3",{style:{margin:"0 0 4px",fontSize:"15px",fontWeight:"600"}},"\uD83D\uDD17 API Server"));
+  urlSection.appendChild(h("p",{style:{margin:"0 0 10px",fontSize:"11px",color:t.ts,lineHeight:"1.5"}},"Local dev: leave blank (auto-connects to localhost:3001). Remote/GitHub Pages: paste your Railway URL below to enable live prices, scores and picks from anywhere."));
+  var urlInput=h("input",{type:"text",
+    value:localStorage.getItem("mexxie_api_url")||"",
+    placeholder:"https://your-api.up.railway.app  (leave blank for localhost)",
+    style:{width:"100%",padding:"8px 10px",borderRadius:"8px",border:"1px solid "+t.border,
+      background:t.surface,color:t.text,fontSize:"12px",fontFamily:"inherit",boxSizing:"border-box",marginBottom:"8px"}
+  });
+  urlSection.appendChild(urlInput);
+  var urlBtnRow=h("div",{style:{display:"flex",gap:"8px",alignItems:"center"}});
+  var urlStatus=h("span",{style:{fontSize:"11px",color:t.tm}},API_AVAILABLE?"✅ Connected ("+API_BASE+")":"⚪ Not connected");
+  urlBtnRow.appendChild(h("button",{style:{
+    padding:"6px 14px",borderRadius:"8px",border:"none",
+    background:t.accent,color:"#fff",fontSize:"11px",fontWeight:"700",fontFamily:"inherit",cursor:"pointer"
+  },onClick:async function(){
+    var val=urlInput.value.trim();
+    try{localStorage.setItem("mexxie_api_url",val)}catch(x){}
+    API_BASE=val?val.replace(/\/$/,'')+'/api':(window.location.hostname==='localhost'||window.location.hostname==='127.0.0.1')?'http://localhost:3001/api':'';
+    urlStatus.textContent="⏳ Testing...";
+    await checkAPI();
+    if(API_AVAILABLE){
+      urlStatus.textContent="✅ Connected — "+API_BASE;urlStatus.style.color=t.buy;
+      await Promise.all([loadStockUniverse(),loadPriorPicks()]);render();
+    }else{
+      urlStatus.textContent="❌ Cannot reach "+API_BASE;urlStatus.style.color=t.sell;
+    }
+  }},"Save & Test"));
+  urlBtnRow.appendChild(urlStatus);
+  urlSection.appendChild(urlBtnRow);
+  f.appendChild(urlSection);
 
   // API Data Provider
   var dc=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",maxWidth:"600px",marginTop:"12px"}});

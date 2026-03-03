@@ -1,14 +1,19 @@
 {
   "name": "mexxie-api",
   "version": "1.0.0",
-  "description": "Express API layer between Mexxie Prism and QuestDB",
+  "description": "Express API layer for Mexxie Prism — supports QuestDB (local) and PostgreSQL (Railway/cloud)",
   "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node server.js",
-    "seed": "node seed.js"
+    "seed": "node seed.js",
+    "migrate": "node migrate.js"
   },
   "dependencies": {
+    "cors": "^2.8.5",
     "express": "^4.21.0",
-    "cors": "^2.8.5"
+    "pg": "^8.19.0"
   }
 }

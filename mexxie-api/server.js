@@ -4,14 +4,13 @@ const db = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const IS_PROD = !!process.env.DATABASE_URL;
 
-// CORS — allow Prism frontend
-app.use(cors({
-  origin: [
-    'http://localhost:8080', 'http://127.0.0.1:8080',
-    'http://localhost:3000', 'http://127.0.0.1:3000'
-  ]
-}));
+// CORS — local dev restricts origins; Railway allows all (GitHub Pages, etc.)
+app.use(cors(IS_PROD
+  ? { origin: '*' }
+  : { origin: ['http://localhost:8080','http://127.0.0.1:8080','http://localhost:3000','http://127.0.0.1:3000'] }
+));
 
 // JSON body parser — large payloads for 4000-stock score batches
 app.use(express.json({ limit: '10mb' }));
@@ -19,15 +18,15 @@ app.use(express.json({ limit: '10mb' }));
 // Health check
 app.get('/api/health', async (req, res) => {
   const dbOk = await db.healthCheck();
-  res.json({ status: dbOk ? 'ok' : 'degraded', db: dbOk, timestamp: new Date().toISOString() });
+  res.json({ status: dbOk ? 'ok' : 'degraded', db: dbOk, timestamp: new Date().toISOString(), env: IS_PROD ? 'cloud' : 'local' });
 });
 
 // Mount routes
-app.use('/api/stocks', require('./routes/stocks'));
-app.use('/api/scores', require('./routes/scores'));
-app.use('/api/picks', require('./routes/picks'));
+app.use('/api/stocks',    require('./routes/stocks'));
+app.use('/api/scores',    require('./routes/scores'));
+app.use('/api/picks',     require('./routes/picks'));
 app.use('/api/valuation', require('./routes/valuation'));
-app.use('/api/eodhd', require('./routes/eodhd'));
+app.use('/api/eodhd',     require('./routes/eodhd'));
 
 // Error handler
 app.use((err, req, res, next) => {
@@ -35,12 +34,23 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message });
 });
 
-app.listen(PORT, () => {
-  console.log('Mexxie API running on http://localhost:' + PORT);
-  console.log('QuestDB endpoint: ' + db.QUESTDB_URL);
-  // Verify DB connection on startup
-  db.healthCheck().then(ok => {
-    if (ok) console.log('QuestDB connection: OK');
-    else console.warn('QuestDB connection: FAILED — API will return errors for DB operations');
+async function start() {
+  // Run PostgreSQL migrations on startup (Railway only)
+  if (IS_PROD) {
+    try {
+      await require('./migrate')();
+    } catch (e) {
+      console.error('[startup] Migration error:', e.message);
+    }
+  }
+
+  app.listen(PORT, () => {
+    console.log('Mexxie API running on port ' + PORT);
+    console.log('Mode: ' + (IS_PROD ? 'Cloud (PostgreSQL)' : 'Local (QuestDB)'));
+    db.healthCheck().then(ok => {
+      console.log('DB connection: ' + (ok ? 'OK' : 'FAILED'));
+    });
   });
-});
+}
+
+start();
