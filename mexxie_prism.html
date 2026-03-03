@@ -81,7 +81,7 @@ var THEMES={
   ocean:{name:"Deep Ocean",bg:"#010c18",surface:"#021525",card:"#031d30",border:"#074060",accent:"#38bdf8",accentGlow:"rgba(56,189,248,0.15)",sell:"#f87171",sellGlow:"rgba(248,113,113,0.12)",buy:"#34d399",buyGlow:"rgba(52,211,153,0.12)",text:"#e0f2fe",ts:"#7dd3fc",tm:"#0369a1",grad:"linear-gradient(135deg,#38bdf8,#0284c7)",hg:"linear-gradient(135deg,#010c18,#021f35,#010c18)",rt:"#074060",rth:"#38bdf8"},
   gold:{name:"Pharaoh Gold",bg:"#080600",surface:"#110e00",card:"#1a1500",border:"#3d2f00",accent:"#fbbf24",accentGlow:"rgba(251,191,36,0.18)",sell:"#ef4444",sellGlow:"rgba(239,68,68,0.12)",buy:"#86efac",buyGlow:"rgba(134,239,172,0.12)",text:"#fffbeb",ts:"#fde68a",tm:"#b45309",grad:"linear-gradient(135deg,#fbbf24,#d97706,#b45309)",hg:"linear-gradient(135deg,#080600,#1a1500,#080600)",rt:"#3d2f00",rth:"#fbbf24"}
 };
-var SECTORS=["Technology","Healthcare","Finance","Consumer","Energy","Industrial","Materials","Utilities","Real Estate","Telecom"];
+var SECTORS=["Technology","Healthcare","Finance","Consumer","Energy","Industrial","Materials","Utilities","Real Estate","Telecom","Other"];
 // ===================== API CONFIGURATION =====================
 var API_BASE='http://localhost:3001/api';
 var API_AVAILABLE=false;
@@ -105,8 +105,11 @@ async function persistScores(){
   if(!API_AVAILABLE)return;
   try{
     var nw2=nW();
-    var scores=ALL_STOCKS.map(function(st,idx){
-      var sc=genSc(idx);
+    // For large universes only persist stocks with live data (real-time enriched)
+    var stocksToPersist=ALL_STOCKS.length>500?ALL_STOCKS.filter(function(st){return !!st.live}):ALL_STOCKS;
+    if(stocksToPersist.length===0)return;
+    console.log('Persisting scores for '+stocksToPersist.length+'/'+ALL_STOCKS.length+' stocks (live data)');
+    var scores=stocksToPersist.map(function(st){var idx=ALL_STOCKS.indexOf(st);var sc=genSc(idx);
       if(st.live){
         if(st.live.pb!=null)sc.t.pb=+Math.abs(st.live.pb).toFixed(2);
         if(st.live.divYield!=null)sc.t.dy=+(st.live.divYield*100).toFixed(1);
@@ -415,11 +418,14 @@ async function fetchEODHDLive(){
     var allToFetch=allSymbols.concat(etfSymbols);
 
     // Route through API proxy to avoid CORS — bulk API with filter=extended
+    // Use larger batches (100) for efficiency with 3,000+ stock universe
+    var batchSize=allToFetch.length>500?100:50;
     S.loadingMsg="Fetching "+allToFetch.length+" tickers via EODHD bulk...";render();
-    var batches=batchArray(allToFetch,50);var quoteMap={};
+    var batches=batchArray(allToFetch,batchSize);var quoteMap={};
     for(var b=0;b<batches.length;b++){
       var batchSyms=batches[b].join(",");
-      S.loadingMsg="Fetching batch "+(b+1)+"/"+batches.length+" ("+batches[b].length+" tickers)...";render();
+      var pct=Math.round((b+1)/batches.length*100);
+      S.loadingMsg="Pricing "+pct+"% · batch "+(b+1)+"/"+batches.length+" ("+allToFetch.length+" stocks)";render();
       try{
         var r=await fetch(API_BASE+"/eodhd/bulk?key="+encodeURIComponent(key)+"&exchange=US&symbols="+encodeURIComponent(batchSyms));
         callCount+=100+batches[b].length;
@@ -441,14 +447,17 @@ async function fetchEODHDLive(){
           });
         }
       }catch(e){errors.push("Bulk batch "+(b+1)+" error: "+e.message)}
-      if(b<batches.length-1)await new Promise(function(r){setTimeout(r,300)});
+      if(b<batches.length-1)await new Promise(function(r){setTimeout(r,allToFetch.length>500?150:300)});
     }
 
-    // Fetch dividends for top-ranked stocks to compute real dividend yield
-    S.loadingMsg="Fetching dividend data for yield calculation...";render();
+    // Fetch dividends for top 20 stocks only — saves API calls for large universes
+    S.loadingMsg="Fetching dividend data for top dividend payers...";render();
     var divMap={};var oneYearAgo=new Date();oneYearAgo.setFullYear(oneYearAgo.getFullYear()-1);
     var fromDate=oneYearAgo.toISOString().slice(0,10);
-    var tickersForDiv=allSymbols.slice(0,30);// Top 30 by array position
+    // Get top 20 highest-price US stocks (likely dividend payers) + any prior picks
+    var priorSyms=S.prior.map(function(pk){return eodhdSymbol(pk.t)});
+    var highPriceSyms=allSymbols.filter(function(s){var q=quoteMap[s];return q&&q.price>20}).sort(function(a,b){return (quoteMap[b]?quoteMap[b].price:0)-(quoteMap[a]?quoteMap[a].price:0)}).slice(0,20);
+    var tickersForDiv=Array.from(new Set(priorSyms.concat(highPriceSyms))).slice(0,30);// Deduplicate, max 30
     var divBatches=batchArray(tickersForDiv,5);
     for(var di=0;di<divBatches.length;di++){
       try{
@@ -624,6 +633,7 @@ var S={
   eodhKey:(function(){try{return localStorage.getItem("mexxie_eodh_key")||""}catch(e){return""}})(),
   loading:false,loadingMsg:"",lastSource:"Simulated",lastCalls:0,lastErrors:[],
   expandedStock:null,
+  minMcap:(function(){try{return +localStorage.getItem("mexxie_min_mcap")||0}catch(e){return 0}})(),
   prior:[
     {t:"MSFT",n:"Microsoft Corp.",co:"\uD83C\uDDFA\uD83C\uDDF8",date:"2025-09-15",entry:398.2,curr:445.2,act:null},
     {t:"NOVO-B",n:"Novo Nordisk A/S",co:"\uD83C\uDDE9\uD83C\uDDF0",date:"2025-08-10",entry:620.4,curr:685.3,act:null},
@@ -640,6 +650,7 @@ function getRanked(){
   var nw=nW();var pool=ALL_STOCKS;
   if(S.region!=="Worldwide")pool=pool.filter(function(x){return x.r===S.region});
   if(S.sector!=="All")pool=pool.filter(function(x){return x.s===S.sector});
+  if(S.minMcap>0)pool=pool.filter(function(x){return x.mc>=S.minMcap});
   var arr=pool.map(function(st,i){
     var idx=ALL_STOCKS.indexOf(st);var sc=genSc(idx);
     if(st.live){
@@ -823,11 +834,21 @@ function renderScreener(){
   var ss=h("select",{style:{fontSize:"13px"},onChange:function(e){S.sector=e.target.value;render()}});
   ss.appendChild(h("option",{value:"All"},"All"));SECTORS.forEach(function(s){ss.appendChild(h("option",{value:s},s))});ss.value=S.sector;
   sb.appendChild(ss);ct.appendChild(sb);
+  // Market cap filter
+  var mcb=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"10px",padding:"6px 12px",display:"flex",alignItems:"center",gap:"6px"}});
+  mcb.appendChild(h("span",{style:{fontSize:"10px",color:t.tm,textTransform:"uppercase",fontWeight:"600"}},"Min Cap"));
+  var mcs=h("select",{style:{fontSize:"13px"},onChange:function(e){S.minMcap=+e.target.value;try{localStorage.setItem("mexxie_min_mcap",S.minMcap)}catch(x){}render()}});
+  [{v:0,l:"Any"},{v:0.5,l:">$500M"},{v:1,l:">$1B"},{v:5,l:">$5B"},{v:10,l:">$10B"},{v:50,l:">$50B"},{v:100,l:">$100B"}].forEach(function(o){var opt=h("option",{value:o.v},o.l);if(S.minMcap===o.v)opt.selected=true;mcs.appendChild(opt)});
+  mcb.appendChild(mcs);ct.appendChild(mcb);
   // Regime pills
   var mrPills=h("div",{style:{display:"flex",gap:"0",borderRadius:"8px",overflow:"hidden",border:"1px solid "+t.border}});
   ["overvalued","neutral","undervalued"].forEach(function(rk){var rp=REGIME_PRESETS[rk];var active=S.regime===rk;var ac=rk==="overvalued"?"#dc2626":rk==="undervalued"?"#16a34a":t.accent;mrPills.appendChild(h("button",{style:{padding:"5px 12px",border:"none",fontSize:"10px",fontWeight:"700",fontFamily:"inherit",background:active?ac+"22":"transparent",color:active?ac:t.tm,borderBottom:active?"2px solid "+ac:"2px solid transparent",transition:"all .2s"},onClick:function(){S.regime=rk;var w=REGIME_PRESETS[rk].weights;Object.keys(w).forEach(function(k){S.weights[k]=w[k]});render()}},rp.label))});
   ct.appendChild(mrPills);
-  ct.appendChild(h("div",{style:{marginLeft:"auto",fontSize:"11px",color:t.tm}},ranked.length+" stocks \u00B7 "+S.region));
+  var universeSize=ALL_STOCKS.length;
+  var filteredSize=ranked.length;
+  var countLabel=filteredSize+" screened";
+  if(universeSize>filteredSize)countLabel+="\u00B7"+universeSize.toLocaleString()+" universe";
+  ct.appendChild(h("div",{style:{marginLeft:"auto",fontSize:"11px",color:t.tm}},countLabel+"\u00B7"+S.region));
   f.appendChild(ct);
   // Stock cards
   var grid=h("div",{className:"stock-cards"});
