@@ -1,0 +1,14 @@
+{
+  "name": "mexxie-api",
+  "version": "1.0.0",
+  "description": "Express API layer between Mexxie Prism and QuestDB",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "seed": "node seed.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "cors": "^2.8.5"
+  }
+}

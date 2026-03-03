@@ -82,6 +82,65 @@ var THEMES={
   gold:{name:"Pharaoh Gold",bg:"#080600",surface:"#110e00",card:"#1a1500",border:"#3d2f00",accent:"#fbbf24",accentGlow:"rgba(251,191,36,0.18)",sell:"#ef4444",sellGlow:"rgba(239,68,68,0.12)",buy:"#86efac",buyGlow:"rgba(134,239,172,0.12)",text:"#fffbeb",ts:"#fde68a",tm:"#b45309",grad:"linear-gradient(135deg,#fbbf24,#d97706,#b45309)",hg:"linear-gradient(135deg,#080600,#1a1500,#080600)",rt:"#3d2f00",rth:"#fbbf24"}
 };
 var SECTORS=["Technology","Healthcare","Finance","Consumer","Energy","Industrial","Materials","Utilities","Real Estate","Telecom"];
+// ===================== API CONFIGURATION =====================
+var API_BASE='http://localhost:3001/api';
+var API_AVAILABLE=false;
+
+async function checkAPI(){
+  try{var r=await fetch(API_BASE+'/health',{signal:AbortSignal.timeout(2000)});var d=await r.json();API_AVAILABLE=d.status==='ok';}catch(e){API_AVAILABLE=false;}
+}
+async function loadStockUniverse(){
+  if(!API_AVAILABLE)return;
+  try{var r=await fetch(API_BASE+'/stocks?limit=5000');var d=await r.json();
+    if(d&&d.length>0){ALL_STOCKS=d;console.log('Loaded '+d.length+' stocks from QuestDB');}
+  }catch(e){console.log('API stock load failed, using fallback');}
+}
+async function loadPriorPicks(){
+  if(!API_AVAILABLE)return;
+  try{var r=await fetch(API_BASE+'/picks');var d=await r.json();
+    if(d&&d.length>0){S.prior=d;console.log('Loaded '+d.length+' prior picks from QuestDB');}
+  }catch(e){console.log('API picks load failed, using fallback');}
+}
+async function persistScores(){
+  if(!API_AVAILABLE)return;
+  try{
+    var nw2=nW();
+    var scores=ALL_STOCKS.map(function(st,idx){
+      var sc=genSc(idx);
+      if(st.live){
+        if(st.live.pb!=null)sc.t.pb=+Math.abs(st.live.pb).toFixed(2);
+        if(st.live.divYield!=null)sc.t.dy=+(st.live.divYield*100).toFixed(1);
+        if(st.live.roe!=null)sc.g.roic=+(st.live.roe*100).toFixed(1);
+        if(st.live.pe!=null&&st.live.pe>0)sc.g.ey=+(100/st.live.pe).toFixed(1);
+        if(st.live.change!=null)sc.s.mom=+Math.min(100,Math.max(0,50+st.live.change*2)).toFixed(0);
+        if(st.live.fcfYield!=null&&st.live.fcfYield>0)sc.t.fcf=+Math.min(14,st.live.fcfYield).toFixed(1);
+      }
+      var cats=0;
+      if(sc.g.ey>10||sc.t.pb<2)cats++;
+      if(sc.m.moat>=3&&+sc.m.qual>70)cats++;
+      if(+sc.s.mom>55&&+sc.s.rsi>=35&&+sc.s.rsi<=70)cats++;
+      if(sc.p.fscore>=6&&sc.a.z>2)cats++;
+      if(+sc.t.shY>5)cats++;
+      return{ticker:st.t,sc:sc,comp:+comp(sc,nw2),consensus:cats};
+    });
+    await fetch(API_BASE+'/scores',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({dataSeed:S.dataSeed,dataSource:S.lastSource,scores:scores})});
+    console.log('Persisted '+scores.length+' scores to QuestDB');
+  }catch(e){console.log('Score persist failed:',e.message);}
+}
+async function persistValuation(mv){
+  if(!API_AVAILABLE||!mv)return;
+  try{await fetch(API_BASE+'/valuation',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(mv)});}catch(e){}
+}
+async function persistPick(action,pick,data){
+  if(!API_AVAILABLE)return;
+  try{
+    if(action==='add')await fetch(API_BASE+'/picks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(pick)});
+    else if(action==='update')await fetch(API_BASE+'/picks/'+pick.t,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    else if(action==='delete')await fetch(API_BASE+'/picks/'+pick.t,{method:'DELETE'});
+  }catch(e){}
+}
 // ===================== STOCK DATA =====================
 var REGION_MAP={"Worldwide":null,"US":"\uD83C\uDDFA\uD83C\uDDF8","Europe":"\uD83C\uDDEA\uD83C\uDDFA","Asia":"\uD83C\uDF0F","S. America":"\uD83C\uDDE7\uD83C\uDDF7","Africa":"\uD83C\uDDFF\uD83C\uDDE6"};
 var REGIONS=Object.keys(REGION_MAP);
@@ -306,7 +365,7 @@ function nW(){
 }
 function etfSc(e){var base=S.dataSeed||1;var jitter=(sR(base+e.t.charCodeAt(0))*4)-2;var adjMom=Math.max(-5,e.mom+jitter);return+((Math.max(0,100-e.exp*80)*0.2)+(adjMom/30*40)+(e.y/4*30)).toFixed(1)}
 // ===================== UTILITIES =====================
-function refreshData(){S.dataSeed=Math.floor(Math.random()*90000)+10000;S.lastRefresh=new Date();ALL_STOCKS.forEach(function(st){var pctChange=(Math.random()-0.48)*6;st.p=+(st.p*(1+pctChange/100)).toFixed(2)});ETFS.forEach(function(e){var momShift=(Math.random()-0.45)*3;e.mom=+(e.mom+momShift).toFixed(1)});S.prior.forEach(function(pk){var chg=(Math.random()-0.45)*4;pk.curr=+(pk.curr*(1+chg/100)).toFixed(2)});S.refreshCount=(S.refreshCount||0)+1;S.lastSource="Simulated";S.lastCalls=0;S.lastErrors=[];render()}
+function refreshData(){S.dataSeed=Math.floor(Math.random()*90000)+10000;S.lastRefresh=new Date();ALL_STOCKS.forEach(function(st){var pctChange=(Math.random()-0.48)*6;st.p=+(st.p*(1+pctChange/100)).toFixed(2)});ETFS.forEach(function(e){var momShift=(Math.random()-0.45)*3;e.mom=+(e.mom+momShift).toFixed(1)});S.prior.forEach(function(pk){var chg=(Math.random()-0.45)*4;pk.curr=+(pk.curr*(1+chg/100)).toFixed(2)});S.refreshCount=(S.refreshCount||0)+1;S.lastSource="Simulated";S.lastCalls=0;S.lastErrors=[];render();persistScores()}
 function fmtTime(d){if(!d)return"Never";var h=d.getHours(),m=d.getMinutes(),s=d.getSeconds();var ampm=h>=12?"PM":"AM";h=h%12||12;return h+":"+(m<10?"0":"")+m+":"+(s<10?"0":"")+s+" "+ampm}
 function fmtDate(d){if(!d)return"";var months=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];return months[d.getMonth()]+" "+d.getDate()+", "+d.getFullYear()}
 function batchArray(arr,size){var r=[];for(var i=0;i<arr.length;i+=size)r.push(arr.slice(i,i+size));return r}
@@ -341,7 +400,7 @@ async function fetchFMPLive(){
     S.prior.forEach(function(pk){var sym=fmpTicker(pk.t);var q=quoteMap[sym];if(q&&q.price)pk.curr=+q.price.toFixed(2)});
     S.dataSeed=Math.floor(Math.random()*90000)+10000;S.lastRefresh=new Date();S.refreshCount=(S.refreshCount||0)+1;S.lastSource="FMP Live";S.lastCalls=callCount;S.lastErrors=errors;
   }catch(e){errors.push("Fatal: "+e.message);S.lastErrors=errors}
-  S.loading=false;S.loadingMsg="";render();
+  S.loading=false;S.loadingMsg="";render();persistScores();
 }
 
 async function fetchFinnhubLive(){
@@ -366,7 +425,7 @@ async function fetchFinnhubLive(){
     S.prior.forEach(function(pk){var sym=fmpTicker(pk.t);var q=quoteMap[sym];if(q&&q.price)pk.curr=+q.price.toFixed(2)});
     S.dataSeed=Math.floor(Math.random()*90000)+10000;S.lastRefresh=new Date();S.refreshCount=(S.refreshCount||0)+1;S.lastSource="Finnhub Live";S.lastCalls=callCount;S.lastErrors=errors;
   }catch(e){errors.push("Fatal: "+e.message);S.lastErrors=errors}
-  S.loading=false;S.loadingMsg="";render();
+  S.loading=false;S.loadingMsg="";render();persistScores();
 }
 function fetchLive(){if(S.provider==="fmp")return fetchFMPLive();return fetchFinnhubLive()}
 // ===================== MARKET REGIME PRESETS =====================
@@ -948,9 +1007,9 @@ function renderPrior(){
     if(adv.taxNote)reasonBox.appendChild(h("div",{style:{fontSize:"10px",color:t.tm,marginTop:"3px"}},"\ud83c\udfe6 "+adv.taxNote));
     row.appendChild(reasonBox);
     var btns=h("div",{style:{display:"flex",gap:"6px",justifyContent:"flex-end"}});
-    btns.appendChild(h("button",{style:{padding:"5px 10px",borderRadius:"6px",border:"1px solid "+t.accent+"55",fontSize:"10px",fontWeight:"600",background:pk.act==="consider"?t.accent:"transparent",color:pk.act==="consider"?"#fff":t.accent,transition:"all .2s"},onClick:(function(idx){return function(){S.prior[idx].act=S.prior[idx].act==="consider"?null:"consider";render()}})(i)},"\u26a0 Watch"));
-    btns.appendChild(h("button",{style:{padding:"5px 10px",borderRadius:"6px",border:"1px solid "+t.sell+"55",fontSize:"10px",fontWeight:"600",background:pk.act==="sell"?t.sell:"transparent",color:pk.act==="sell"?"#fff":t.sell,transition:"all .2s"},onClick:(function(idx){return function(){S.prior[idx].act=S.prior[idx].act==="sell"?null:"sell";render()}})(i)},"\u2715 Sell"));
-    if(pk.act)btns.appendChild(h("button",{style:{padding:"4px 8px",borderRadius:"6px",border:"1px solid "+t.border,fontSize:"9px",background:"transparent",color:t.tm},onClick:(function(idx){return function(){S.prior.splice(idx,1);render()}})(i)},"Remove"));
+    btns.appendChild(h("button",{style:{padding:"5px 10px",borderRadius:"6px",border:"1px solid "+t.accent+"55",fontSize:"10px",fontWeight:"600",background:pk.act==="consider"?t.accent:"transparent",color:pk.act==="consider"?"#fff":t.accent,transition:"all .2s"},onClick:(function(idx){return function(){S.prior[idx].act=S.prior[idx].act==="consider"?null:"consider";persistPick('update',S.prior[idx],{action:S.prior[idx].act});render()}})(i)},"\u26a0 Watch"));
+    btns.appendChild(h("button",{style:{padding:"5px 10px",borderRadius:"6px",border:"1px solid "+t.sell+"55",fontSize:"10px",fontWeight:"600",background:pk.act==="sell"?t.sell:"transparent",color:pk.act==="sell"?"#fff":t.sell,transition:"all .2s"},onClick:(function(idx){return function(){S.prior[idx].act=S.prior[idx].act==="sell"?null:"sell";persistPick('update',S.prior[idx],{action:S.prior[idx].act});render()}})(i)},"\u2715 Sell"));
+    if(pk.act)btns.appendChild(h("button",{style:{padding:"4px 8px",borderRadius:"6px",border:"1px solid "+t.border,fontSize:"9px",background:"transparent",color:t.tm},onClick:(function(idx){return function(){var removed=S.prior[idx];S.prior.splice(idx,1);persistPick('delete',removed);render()}})(i)},"Remove"));
     row.appendChild(btns);
     list.appendChild(row);
   });
@@ -1272,12 +1331,19 @@ function render(){
   app.appendChild(renderFooter());
 }
 
-render();
-
-// Auto-fetch market valuation if cache is expired or empty
-if(!S.marketVal&&S.finnhubKey){
-  fetchMarketValuation(false).then(function(r){if(r){S.marketVal=r;render()}});
-}
+// ===== ASYNC STARTUP =====
+(async function startup(){
+  await checkAPI();
+  console.log('API available:',API_AVAILABLE);
+  if(API_AVAILABLE){
+    await Promise.all([loadStockUniverse(),loadPriorPicks()]);
+  }
+  render();
+  // Async: load market valuation
+  if(!S.marketVal&&S.finnhubKey){
+    fetchMarketValuation(false).then(function(r){if(r){S.marketVal=r;persistValuation(r);render()}});
+  }
+})();
 
 // Register PWA Service Worker
 if('serviceWorker' in navigator){

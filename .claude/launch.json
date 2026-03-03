@@ -6,6 +6,12 @@
       "runtimeExecutable": "/opt/homebrew/bin/npx",
       "runtimeArgs": ["serve", "-l", "8080", "--no-clipboard"],
       "port": 8080
+    },
+    {
+      "name": "mexxie-api",
+      "runtimeExecutable": "/opt/homebrew/bin/node",
+      "runtimeArgs": ["mexxie-api/server.js"],
+      "port": 3001
     }
   ]
 }
