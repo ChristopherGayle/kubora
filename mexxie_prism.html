@@ -320,7 +320,8 @@ var STRAT_DETAILS=[
   {title:"EV/EBIT Multiple",icon:"\u2696\uFE0F",why:"Beats Greenblatt EY by ~2%/yr.",met:"EV/EBIT. <8x = deep value. >20x = expensive.",use:"Increase to 8-12% for pure deep-value."},
   {title:"Shareholder Yield",icon:"\uD83D\uDCB0",why:"Beats dividend-only by 2-3%/yr.",met:"Div yield + buyback yield + debt paydown.",use:"Increase to 8-12% for international stocks."},
   {title:"Revenue Growth",icon:"\uD83D\uDCC5",why:"Screens out cyclicals at earnings peaks.",met:"Consecutive quarters with positive YoY growth.",use:"Increase to 5-8% to avoid cyclical traps."},
-  {title:"Short Interest",icon:"\uD83C\uDFAF",why:"5-15% short interest can signal contrarian opportunity.",met:"% of float sold short.",use:"Increase to 4-6% during market recoveries."}
+  {title:"Short Interest",icon:"\uD83C\uDFAF",why:"5-15% short interest can signal contrarian opportunity.",met:"% of float sold short.",use:"Increase to 4-6% during market recoveries."},
+  {title:"Druckenmiller Growth",icon:"\uD83D\uDE80",why:"~30%/yr at Duquesne Capital. Macro-aligned secular growth with institutional accumulation.",met:"Revenue growth + ROIC quality + EMA momentum (price > EMA200) + Beta 1.0\u20131.8 (macro leverage) + entry timing (not overextended).",use:"Increase to 15-20% in bull markets and early recovery cycles. Reduce to 5% when overvalued/defensive."}
 ];
 // ===================== SCORING =====================
 function sR(seed){var x=Math.sin(seed)*10000;return x-Math.floor(x)}
@@ -335,11 +336,12 @@ function genSc(idx){
   var shY=+(1+s(26)*14).toFixed(1);
   var revQ=Math.floor(s(27)*9);
   var shortInt=+(s(28)*30).toFixed(1);
+  var beta=+(0.4+s(29)*1.8).toFixed(2); // simulated beta 0.4–2.2
   return{
     g:{ey:+(5+s(1)*20).toFixed(1),roic:+(8+s(2)*40).toFixed(1),rk:Math.floor(s(3)*100)+1,evEbit:evEbit},
     t:{pb:+(0.5+s(4)*3.5).toFixed(2),ins:s(5)>0.5,dy:+(0.5+s(6)*5).toFixed(1),fcf:+(2+s(7)*12).toFixed(1),shY:shY},
     m:{moat:Math.floor(s(8)*5)+1,qual:+(60+s(9)*40).toFixed(0),mgmt:+(50+s(10)*50).toFixed(0),revQ:revQ},
-    s:{mom:+(30+s(11)*70).toFixed(0),mr:s(12)>0.4?"Long":"Neutral",sa:+(40+s(13)*60).toFixed(0),rsi:rsi,shortInt:shortInt},
+    s:{mom:+(30+s(11)*70).toFixed(0),mr:s(12)>0.4?"Long":"Neutral",sa:+(40+s(13)*60).toFixed(0),rsi:rsi,shortInt:shortInt,beta:beta},
     p:{fscore:fscore,pf:pf},
     a:{z:altZ,safe:altZ>2.99,grey:altZ>=1.81&&altZ<=2.99,distress:altZ<1.81}
   };
@@ -359,16 +361,23 @@ function comp(sc,w){
   if(sc.a&&sc.a.distress)az=Math.min(az,0.2);
   var si=sc.s.shortInt;
   var shortScore=(si>=5&&si<=15)?0.7:(si<5)?0.5:(si>20)?0.2:0.4;
+  // ── Druckenmiller: secular growth + macro momentum + quality + entry timing + beta ──
+  var dk_grow=Math.min(1,sc.m.revQ/8*0.55+Math.min(1,sc.g.roic/45)*0.45);
+  var dk_mom=sc.s.mom/100;
+  var dk_qual=sc.m.qual/100*0.55+(sc.p?sc.p.fscore/9:0.5)*0.45;
+  var dk_entry=(sc.s.rsi>=35&&sc.s.rsi<=70)?1.0:(sc.s.rsi>70)?Math.max(0.15,1-(sc.s.rsi-70)*0.04):0.55;
+  var dk_beta=(function(b){return(b>=1.0&&b<=1.8)?1.0:(b>1.8)?Math.max(0.2,1-(b-1.8)*0.4):(b<0.5)?0.3:b/1.0})(sc.s.beta||1.0);
+  var druckScore=dk_grow*0.30+dk_mom*0.25+dk_qual*0.25+dk_entry*0.15+dk_beta*0.05;
   var wt=w.greenblatt||0,wv=w.tweedy||0,wm=w.munger||0,ws=w.simons||0;
   var wp=w.piotroski||0,wa=w.altman||0,wr=w.rsi||0,we=w.evEbit||0;
-  var wsh=w.shYield||0,wrev=w.revGrowth||0,wsi=w.shortInt||0;
-  var tot=wt+wv+wm+ws+wp+wa+wr+we+wsh+wrev+wsi||1;
-  return+((g*(wt/tot)+tv*(wv/tot)+m*(wm/tot)+s2*(ws/tot)+p*(wp/tot)+az*(wa/tot)+rsiScore*(wr/tot)+Math.max(0,(25-sc.g.evEbit)/25)*(we/tot)+(sc.t.shY/15)*(wsh/tot)+(sc.m.revQ/8)*(wrev/tot)+shortScore*(wsi/tot))*100).toFixed(1);
+  var wsh=w.shYield||0,wrev=w.revGrowth||0,wsi=w.shortInt||0,wdk=w.druckenmiller||0;
+  var tot=wt+wv+wm+ws+wp+wa+wr+we+wsh+wrev+wsi+wdk||1;
+  return+((g*(wt/tot)+tv*(wv/tot)+m*(wm/tot)+s2*(ws/tot)+p*(wp/tot)+az*(wa/tot)+rsiScore*(wr/tot)+Math.max(0,(25-sc.g.evEbit)/25)*(we/tot)+(sc.t.shY/15)*(wsh/tot)+(sc.m.revQ/8)*(wrev/tot)+shortScore*(wsi/tot)+druckScore*(wdk/tot))*100).toFixed(1);
 }
 function nW(){
   var w=S.weights;
-  var tot=(w.greenblatt||0)+(w.tweedy||0)+(w.munger||0)+(w.simons||0)+(w.piotroski||0)+(w.altman||0)+(w.rsi||0)+(w.evEbit||0)+(w.shYield||0)+(w.revGrowth||0)+(w.shortInt||0)||1;
-  return{greenblatt:(w.greenblatt||0)/tot,tweedy:(w.tweedy||0)/tot,munger:(w.munger||0)/tot,simons:(w.simons||0)/tot,piotroski:(w.piotroski||0)/tot,altman:(w.altman||0)/tot,rsi:(w.rsi||0)/tot,evEbit:(w.evEbit||0)/tot,shYield:(w.shYield||0)/tot,revGrowth:(w.revGrowth||0)/tot,shortInt:(w.shortInt||0)/tot};
+  var tot=(w.greenblatt||0)+(w.tweedy||0)+(w.munger||0)+(w.simons||0)+(w.piotroski||0)+(w.altman||0)+(w.rsi||0)+(w.evEbit||0)+(w.shYield||0)+(w.revGrowth||0)+(w.shortInt||0)+(w.druckenmiller||0)||1;
+  return{greenblatt:(w.greenblatt||0)/tot,tweedy:(w.tweedy||0)/tot,munger:(w.munger||0)/tot,simons:(w.simons||0)/tot,piotroski:(w.piotroski||0)/tot,altman:(w.altman||0)/tot,rsi:(w.rsi||0)/tot,evEbit:(w.evEbit||0)/tot,shYield:(w.shYield||0)/tot,revGrowth:(w.revGrowth||0)/tot,shortInt:(w.shortInt||0)/tot,druckenmiller:(w.druckenmiller||0)/tot};
 }
 function etfSc(e){var base=S.dataSeed||1;var jitter=(sR(base+e.t.charCodeAt(0))*4)-2;var adjMom=Math.max(-5,e.mom+jitter);return+((Math.max(0,100-e.exp*80)*0.2)+(adjMom/30*40)+(e.y/4*30)).toFixed(1)}
 // ===================== UTILITIES =====================
@@ -582,9 +591,9 @@ async function fetchFinnhubLive(){
 function fetchLive(){if(S.provider==="eodhd")return fetchEODHDLive();if(S.provider==="fmp")return fetchFMPLive();return fetchFinnhubLive()}
 // ===================== MARKET REGIME PRESETS =====================
 var REGIME_PRESETS={
-  overvalued:{label:"\uD83D\uDD34 Overvalued",desc:"CAPE >25 \u00B7 Buffett >120%",weights:{greenblatt:12,tweedy:8,munger:28,simons:5,piotroski:18,altman:12,rsi:5,evEbit:3,shYield:4,revGrowth:4,shortInt:1},rationale:"Quality + safety dominate in expensive markets."},
-  neutral:{label:"\uD83D\uDFE1 Neutral",desc:"CAPE 15\u201325 \u00B7 Buffett 80\u2013120%",weights:{greenblatt:20,tweedy:10,munger:18,simons:15,piotroski:12,altman:5,rsi:2,evEbit:4,shYield:8,revGrowth:5,shortInt:1},rationale:"Balanced multi-factor allocation for normal markets."},
-  undervalued:{label:"\uD83D\uDFE2 Undervalued",desc:"CAPE <15 \u00B7 Buffett <80%",weights:{greenblatt:28,tweedy:18,munger:8,simons:12,piotroski:8,altman:3,rsi:3,evEbit:10,shYield:5,revGrowth:2,shortInt:3},rationale:"Deep value + momentum for recovery markets."}
+  overvalued:{label:"\uD83D\uDD34 Overvalued",desc:"CAPE >25 \u00B7 Buffett >120%",weights:{greenblatt:11,tweedy:7,munger:26,simons:5,piotroski:17,altman:12,rsi:5,evEbit:3,shYield:4,revGrowth:4,shortInt:1,druckenmiller:5},rationale:"Quality + safety dominate. Druckenmiller reduced \u2014 growth stocks underperform in overvalued cycles."},
+  neutral:{label:"\uD83D\uDFE1 Neutral",desc:"CAPE 15\u201325 \u00B7 Buffett 80\u2013120%",weights:{greenblatt:18,tweedy:9,munger:16,simons:13,piotroski:10,altman:5,rsi:2,evEbit:4,shYield:7,revGrowth:6,shortInt:1,druckenmiller:9},rationale:"Balanced multi-factor allocation for normal markets."},
+  undervalued:{label:"\uD83D\uDFE2 Undervalued",desc:"CAPE <15 \u00B7 Buffett <80%",weights:{greenblatt:24,tweedy:15,munger:7,simons:12,piotroski:7,altman:3,rsi:3,evEbit:9,shYield:4,revGrowth:2,shortInt:3,druckenmiller:11},rationale:"Deep value + momentum for recovery. Druckenmiller elevated \u2014 macro-aligned growth surges in early recovery cycles."}
 };
 // ===================== MARKET VALUATION ENGINE =====================
 var MV_CACHE_DAYS=30;
@@ -625,7 +634,7 @@ async function fetchMarketValuation(forceRefresh){
 var S={
   theme:"obsidian",tab:"screener",region:"Worldwide",regime:"neutral",
   marketVal:loadMVCache(),
-  weights:{greenblatt:20,tweedy:10,munger:18,simons:15,piotroski:12,altman:5,rsi:2,evEbit:4,shYield:8,revGrowth:5,shortInt:1},
+  weights:{greenblatt:18,tweedy:9,munger:16,simons:13,piotroski:10,altman:5,rsi:2,evEbit:4,shYield:7,revGrowth:6,shortInt:1,druckenmiller:9},
   numPicks:8,sector:"All",dataSeed:42,lastRefresh:new Date(),refreshCount:0,
   provider:(function(){try{return localStorage.getItem("mexxie_provider")||"finnhub"}catch(e){return"finnhub"}})(),
   apiKey:(function(){try{return localStorage.getItem("mexxie_api_key")||"gi9xNO7CWDJhG2xupgJaO0wuarOBRUei"}catch(e){return"gi9xNO7CWDJhG2xupgJaO0wuarOBRUei"}})(),
@@ -665,6 +674,8 @@ function getRanked(){
       if(st.live.mom!=null&&st.live.ema200)sc.s.mom=+Math.min(100,Math.max(0,50+st.live.mom*0.5)).toFixed(0);
       // EODHD: use 52-week range position as RSI proxy when real RSI unavailable
       if(st.live.range52!=null&&st.live.ema200)sc.s.rsi=+Math.min(85,Math.max(15,st.live.range52*0.7+15)).toFixed(0);
+      // Druckenmiller: real beta from EODHD (ideal 1.0-1.8 for macro-aligned growth)
+      if(st.live.beta!=null)sc.s.beta=+st.live.beta.toFixed(2);
     }
     var baseComp=comp(sc,nw);
     // Factor Consensus Bonus: reward stocks strong across multiple categories
@@ -1327,13 +1338,13 @@ function renderSettings(){
   // Strategy Weights
   var wc=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",marginBottom:"12px",maxWidth:"600px"}});
   wc.appendChild(h("h3",{style:{margin:"0 0 12px",fontSize:"15px",fontWeight:"600"}},"Strategy Weights"));
-  var wDesc={greenblatt:"Cheap stocks with high returns on capital",tweedy:"Deep value: low P/B, insider buying, dividends",munger:"Wide-moat quality companies at fair prices",simons:"Price momentum and statistical patterns",piotroski:"9-point financial health score",altman:"Bankruptcy risk filter (Z-Score)",rsi:"Avoid overbought entries, favor ideal zones",evEbit:"Enterprise value vs operating earnings",shYield:"Dividends + buybacks + debt paydown",revGrowth:"Consistent quarterly revenue growth",shortInt:"Moderate short interest as contrarian signal"};
+  var wDesc={greenblatt:"Cheap stocks with high returns on capital",tweedy:"Deep value: low P/B, insider buying, dividends",munger:"Wide-moat quality companies at fair prices",simons:"Price momentum and statistical patterns",piotroski:"9-point financial health score",altman:"Bankruptcy risk filter (Z-Score)",rsi:"Avoid overbought entries, favor ideal zones",evEbit:"Enterprise value vs operating earnings",shYield:"Dividends + buybacks + debt paydown",revGrowth:"Consistent quarterly revenue growth",shortInt:"Moderate short interest as contrarian signal",druckenmiller:"Secular growth + macro momentum + quality entry (Druckenmiller)"};
   [{k:"greenblatt",l:"Greenblatt Magic Formula"},{k:"tweedy",l:"Tweedy Browne Value"},
    {k:"munger",l:"Munger Quality"},{k:"simons",l:"Simons Quant"},
    {k:"piotroski",l:"Piotroski F-Score"},{k:"altman",l:"Altman Z-Score"},
    {k:"rsi",l:"RSI Zone Filter"},{k:"evEbit",l:"EV/EBIT Acquirer's Multiple"},
    {k:"shYield",l:"Shareholder Yield"},{k:"revGrowth",l:"Revenue Growth Consistency"},
-   {k:"shortInt",l:"Short Interest Contrarian"}].forEach(function(w){
+   {k:"shortInt",l:"Short Interest Contrarian"},{k:"druckenmiller",l:"\uD83D\uDE80 Druckenmiller Growth"}].forEach(function(w){
     var d=h("div",{style:{marginBottom:"14px"}});
     var r=h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:"2px"}});
     r.appendChild(h("label",{style:{fontSize:"13px",fontWeight:"500"}},w.l));
@@ -1343,7 +1354,7 @@ function renderSettings(){
     d.appendChild(h("input",{type:"range",min:"0",max:"50",value:S.weights[w.k]+"",style:{width:"100%"},onInput:(function(key){return function(e){S.weights[key]=+e.target.value;render()}})(w.k)}));
     wc.appendChild(d);
   });
-  var tot=(S.weights.greenblatt||0)+(S.weights.tweedy||0)+(S.weights.munger||0)+(S.weights.simons||0)+(S.weights.piotroski||0)+(S.weights.altman||0)+(S.weights.rsi||0)+(S.weights.evEbit||0)+(S.weights.shYield||0)+(S.weights.revGrowth||0)+(S.weights.shortInt||0);
+  var tot=(S.weights.greenblatt||0)+(S.weights.tweedy||0)+(S.weights.munger||0)+(S.weights.simons||0)+(S.weights.piotroski||0)+(S.weights.altman||0)+(S.weights.rsi||0)+(S.weights.evEbit||0)+(S.weights.shYield||0)+(S.weights.revGrowth||0)+(S.weights.shortInt||0)+(S.weights.druckenmiller||0);
   wc.appendChild(h("div",{style:{fontSize:"11px",color:t.tm,padding:"6px 10px",background:t.surface,borderRadius:"6px"}},"Total: "+tot+"% (auto-normalized to 100%)"));
   f.appendChild(wc);
 
