@@ -114,6 +114,10 @@ async function persistScores(){
         if(st.live.pe!=null&&st.live.pe>0)sc.g.ey=+(100/st.live.pe).toFixed(1);
         if(st.live.change!=null)sc.s.mom=+Math.min(100,Math.max(0,50+st.live.change*2)).toFixed(0);
         if(st.live.fcfYield!=null&&st.live.fcfYield>0)sc.t.fcf=+Math.min(14,st.live.fcfYield).toFixed(1);
+        // EODHD-specific: use EMA-derived momentum if available (more accurate than daily change)
+        if(st.live.mom!=null&&st.live.ema200)sc.s.mom=+Math.min(100,Math.max(0,50+st.live.mom*0.5)).toFixed(0);
+        // EODHD: use 52-week range position as RSI proxy when real RSI unavailable
+        if(st.live.range52!=null&&st.live.ema200)sc.s.rsi=+Math.min(85,Math.max(15,st.live.range52*0.7+15)).toFixed(0);
       }
       var cats=0;
       if(sc.g.ey>10||sc.t.pb<2)cats++;
@@ -374,6 +378,145 @@ var FMP_BASE="https://financialmodelingprep.com/stable";
 var FMP_TICKERS={"NOVO-B":"NVO","ROG":"RHHBY","NESN":"NSRGY","MC":"LVMHF","SHEL":"SHEL","TTE":"TTE","SIE":"SIEGY","HSBA":"HSBC","UBS":"UBS","OR":"LRLCY","BAYN":"BAYRY","DTE":"DTEGY","ENEL":"ENLAY","ABB":"ABB","VOW3":"VWAGY","SU.PA":"SBGSY","AIR.PA":"EADSY","RMS.PA":"HESAY","ALV.DE":"ALIZY","BNP.PA":"BNPQY","DGE.L":"DEO","IBE.MC":"IBDRY","9984":"SFTBY","005930":"SSNLF","7203":"TM","9988":"BABA","0700":"TCEHY","RELIANCE":"RELIANCE.NS","TCS":"TCS","6758":"SONY","1398":"IDCBY","7267":"HMC","INFY":"INFY","2317":"HNHPF","6861":"KYCCF","035420":"NPSNY","9433":"KDDIY","4503":"ALPMY","3690":"MPNGY","2454":"MDTKF","CBA":"CMWAY","CRPG":"CMPQF","GGAL":"GGAL","EC":"EC","BSBR":"BSBR","NPN":"NPSNY","BTI":"BTI","AGL":"AAUKF","SOL":"SSL","SBK":"SGBLY","FSR":"FSRZY","MTN":"MTNOY","DANGCEM":"DANGF","SBUX":"SFRPF","EGH":"EGHGF"};
 function fmpTicker(t){return FMP_TICKERS[t]||t}
 var FINNHUB_BASE="https://finnhub.io/api/v1";
+var EODHD_BASE="https://eodhd.com/api";
+// EODHD ticker → {symbol}.{exchange} mapping for non-US stocks
+var EODHD_TICKERS={
+  "ASML":"ASML.US","SAP":"SAP.US","NOVO-B":"NVO.US","ROG":"RHHBY.US","AZN":"AZN.US",
+  "NESN":"NSRGY.US","MC":"LVMHF.US","SHEL":"SHEL.US","TTE":"TTE.US","SIE":"SIEGY.US",
+  "HSBA":"HSBC.US","UBS":"UBS.US","OR":"LRLCY.US","BAYN":"BAYRY.US","DTE":"DTEGY.US",
+  "ENEL":"ENLAY.US","ABB":"ABB.US","VOW3":"VWAGY.US","SU.PA":"SBGSY.US","AIR.PA":"EADSY.US",
+  "RMS.PA":"HESAY.US","ALV.DE":"ALIZY.US","BNP.PA":"BNPQY.US","DGE.L":"DEO.US","IBE.MC":"IBDRY.US",
+  "UL":"UL.US","SPOT":"SPOT.US","RACE":"RACE.US",
+  "TSM":"TSM.US","9984":"SFTBY.US","005930":"SSNLF.US","7203":"TM.US",
+  "9988":"BABA.US","0700":"TCEHY.US","RELIANCE":"RELIANCE.NSE","TCS":"TCS.US",
+  "6758":"SONY.US","1398":"IDCBY.US","7267":"HMC.US","INFY":"INFY.US",
+  "2317":"HNHPF.US","6861":"KYCCF.US","035420":"NPSNY.US","9433":"KDDIY.US",
+  "4503":"ALPMY.US","3690":"MPNGY.US","2454":"MDTKF.US",
+  "BHP":"BHP.US","CBA":"CMWAY.US","SE":"SE.US","JD":"JD.US","PDD":"PDD.US",
+  "BYDDY":"BYDDY.US","HDB":"HDB.US","IBN":"IBN.US","BABA":"BABA.US",
+  "ITUB":"ITUB.US","NU":"NU.US","VALE":"VALE.US","ABEV":"ABEV.US",
+  "GGAL":"GGAL.US","EC":"EC.US","BSBR":"BSBR.US","CRPG":"CMPQF.US",
+  "NPN":"NPSNY.US","BTI":"BTI.US","AGL":"AAUKF.US","SOL":"SSL.US",
+  "SBK":"SGBLY.US","FSR":"FSRZY.US","MTN":"MTNOY.US","DANGCEM":"DANGF.US",
+  "SBUX":"SFRPF.US","EGH":"EGHGF.US"
+};
+function eodhdTicker(t){return EODHD_TICKERS[t]||(t+".US")}
+function eodhdSymbol(t){var mapped=eodhdTicker(t);return mapped.split(".")[0]}
+
+async function fetchEODHDLive(){
+  var key=S.eodhKey;if(!key){alert("Please enter your EODHD API key in Settings first.");S.tab="settings";render();return}
+  S.loading=true;S.loadingMsg="Connecting to EODHD via API proxy...";render();
+  var callCount=0;var errors=[];
+  try{
+    // Build US bulk ticker list (most international stocks have US ADRs)
+    var allSymbols=[];var symbolToStock={};
+    ALL_STOCKS.forEach(function(st){var sym=eodhdSymbol(st.t);allSymbols.push(sym);symbolToStock[sym]=st});
+    var etfSymbols=ETFS.map(function(e){return e.t});
+    var allToFetch=allSymbols.concat(etfSymbols);
+
+    // Route through API proxy to avoid CORS — bulk API with filter=extended
+    S.loadingMsg="Fetching "+allToFetch.length+" tickers via EODHD bulk...";render();
+    var batches=batchArray(allToFetch,50);var quoteMap={};
+    for(var b=0;b<batches.length;b++){
+      var batchSyms=batches[b].join(",");
+      S.loadingMsg="Fetching batch "+(b+1)+"/"+batches.length+" ("+batches[b].length+" tickers)...";render();
+      try{
+        var r=await fetch(API_BASE+"/eodhd/bulk?key="+encodeURIComponent(key)+"&exchange=US&symbols="+encodeURIComponent(batchSyms));
+        callCount+=100+batches[b].length;
+        if(!r.ok){var errData=await r.json().catch(function(){return{}});errors.push("Bulk API: "+(errData.error||"HTTP "+r.status));continue}
+        var data=await r.json();
+        if(data&&Array.isArray(data)){
+          data.forEach(function(d){
+            quoteMap[d.code]={
+              price:d.adjusted_close||d.close,
+              open:d.open,high:d.high,low:d.low,
+              change:d.change_p,
+              mc:d.MarketCapitalization?+(d.MarketCapitalization/1e9).toFixed(0):null,
+              beta:d.Beta,
+              ema50:d.ema_50d,ema200:d.ema_200d,
+              hi52:d.hi_250d,lo52:d.lo_250d,
+              vol:d.volume,avgVol50:d.avgvol_50d,avgVol200:d.avgvol_200d,
+              name:d.name
+            };
+          });
+        }
+      }catch(e){errors.push("Bulk batch "+(b+1)+" error: "+e.message)}
+      if(b<batches.length-1)await new Promise(function(r){setTimeout(r,300)});
+    }
+
+    // Fetch dividends for top-ranked stocks to compute real dividend yield
+    S.loadingMsg="Fetching dividend data for yield calculation...";render();
+    var divMap={};var oneYearAgo=new Date();oneYearAgo.setFullYear(oneYearAgo.getFullYear()-1);
+    var fromDate=oneYearAgo.toISOString().slice(0,10);
+    var tickersForDiv=allSymbols.slice(0,30);// Top 30 by array position
+    var divBatches=batchArray(tickersForDiv,5);
+    for(var di=0;di<divBatches.length;di++){
+      try{
+        var divResults=await Promise.all(divBatches[di].map(function(sym){
+          callCount++;
+          return fetch(API_BASE+"/eodhd/div/"+encodeURIComponent(sym+".US")+"?from="+fromDate+"&key="+encodeURIComponent(key))
+            .then(function(r){return r.ok?r.json():[]}).catch(function(){return[]});
+        }));
+        for(var dj=0;dj<divResults.length;dj++){
+          var divData=divResults[dj];var sym3=divBatches[di][dj];
+          if(divData&&Array.isArray(divData)&&divData.length>0){
+            var totalDiv=0;divData.forEach(function(dd){totalDiv+=dd.value||0});
+            divMap[sym3]=totalDiv;
+          }
+        }
+      }catch(e){}
+      if(di<divBatches.length-1)await new Promise(function(r){setTimeout(r,200)});
+    }
+
+    // Map data back to ALL_STOCKS
+    var matched=0;
+    ALL_STOCKS.forEach(function(st){
+      var sym=eodhdSymbol(st.t);var q=quoteMap[sym];
+      if(q){
+        matched++;
+        var pr=+q.price;
+        if(pr>0)st.p=+pr.toFixed(2);
+        if(q.mc)st.mc=q.mc;
+        if(q.name&&q.name.length>2)st.n=q.name;
+        // Compute derived metrics
+        var mom=0;if(q.ema200&&pr>0){mom=+((pr/q.ema200-1)*100).toFixed(1)}
+        var range52=0;if(q.hi52&&q.lo52&&q.hi52>q.lo52){range52=+((pr-q.lo52)/(q.hi52-q.lo52)*100).toFixed(0)}
+        var divYield=null;if(divMap[sym]&&q.price>0){divYield=+(divMap[sym]/q.price).toFixed(4)}
+        st.live={
+          change:q.change,
+          pb:null,// not available on $19.99 plan
+          pe:null,// not available on $19.99 plan
+          roe:null,// not available on $19.99 plan
+          divYield:divYield,
+          fcfYield:null,// not available on $19.99 plan
+          debtEquity:null,
+          // EODHD-specific enrichments
+          beta:q.beta,
+          ema50:q.ema50,ema200:q.ema200,
+          hi52:q.hi52,lo52:q.lo52,
+          mom:mom,// derived from price vs EMA200
+          range52:range52,// 52-week range position 0-100
+          avgVol50:q.avgVol50
+        };
+      }
+    });
+    console.log("EODHD matched "+matched+"/"+ALL_STOCKS.length+" stocks, "+Object.keys(divMap).length+" with dividends");
+
+    // Update ETFs
+    ETFS.forEach(function(etf){var q=quoteMap[etf.t];if(q){if(q.change!=null)etf.mom=+(+q.change).toFixed(1);if(q.price)etf.lastPrice=+q.price}});
+
+    // Update prior picks current prices
+    S.prior.forEach(function(pk){
+      var sym=eodhdSymbol(pk.t);var q=quoteMap[sym];
+      if(q&&q.price)pk.curr=+(+q.price).toFixed(2);
+    });
+
+    S.dataSeed=Math.floor(Math.random()*90000)+10000;
+    S.lastRefresh=new Date();S.refreshCount=(S.refreshCount||0)+1;
+    S.lastSource="EODHD EOD";S.lastCalls=callCount;S.lastErrors=errors;
+  }catch(e){errors.push("Fatal: "+e.message);S.lastErrors=errors}
+  S.loading=false;S.loadingMsg="";render();persistScores();
+}
 
 async function fetchFMPLive(){
   var key=S.apiKey;if(!key){alert("Please enter your FMP API key in Settings first.");S.tab="settings";render();return}
@@ -427,7 +570,7 @@ async function fetchFinnhubLive(){
   }catch(e){errors.push("Fatal: "+e.message);S.lastErrors=errors}
   S.loading=false;S.loadingMsg="";render();persistScores();
 }
-function fetchLive(){if(S.provider==="fmp")return fetchFMPLive();return fetchFinnhubLive()}
+function fetchLive(){if(S.provider==="eodhd")return fetchEODHDLive();if(S.provider==="fmp")return fetchFMPLive();return fetchFinnhubLive()}
 // ===================== MARKET REGIME PRESETS =====================
 var REGIME_PRESETS={
   overvalued:{label:"\uD83D\uDD34 Overvalued",desc:"CAPE >25 \u00B7 Buffett >120%",weights:{greenblatt:12,tweedy:8,munger:28,simons:5,piotroski:18,altman:12,rsi:5,evEbit:3,shYield:4,revGrowth:4,shortInt:1},rationale:"Quality + safety dominate in expensive markets."},
@@ -478,6 +621,7 @@ var S={
   provider:(function(){try{return localStorage.getItem("mexxie_provider")||"finnhub"}catch(e){return"finnhub"}})(),
   apiKey:(function(){try{return localStorage.getItem("mexxie_api_key")||"gi9xNO7CWDJhG2xupgJaO0wuarOBRUei"}catch(e){return"gi9xNO7CWDJhG2xupgJaO0wuarOBRUei"}})(),
   finnhubKey:(function(){try{return localStorage.getItem("mexxie_finnhub_key")||"d6ebj19r01qloir5vun0d6ebj19r01qloir5vung"}catch(e){return"d6ebj19r01qloir5vun0d6ebj19r01qloir5vung"}})(),
+  eodhKey:(function(){try{return localStorage.getItem("mexxie_eodh_key")||""}catch(e){return""}})(),
   loading:false,loadingMsg:"",lastSource:"Simulated",lastCalls:0,lastErrors:[],
   expandedStock:null,
   prior:[
@@ -506,6 +650,10 @@ function getRanked(){
       if(st.live.change!=null)sc.s.mom=+Math.min(100,Math.max(0,50+st.live.change*2)).toFixed(0);
       if(st.live.fcfYield!=null&&st.live.fcfYield>0)sc.t.fcf=+Math.min(14,st.live.fcfYield).toFixed(1);
       if(st.live.debtEquity!=null){sc.p.pf.dlev=st.live.debtEquity<1.5;sc.p.fscore=Object.values(sc.p.pf).filter(Boolean).length}
+      // EODHD-specific: use EMA-derived momentum if available (more accurate than daily change)
+      if(st.live.mom!=null&&st.live.ema200)sc.s.mom=+Math.min(100,Math.max(0,50+st.live.mom*0.5)).toFixed(0);
+      // EODHD: use 52-week range position as RSI proxy when real RSI unavailable
+      if(st.live.range52!=null&&st.live.ema200)sc.s.rsi=+Math.min(85,Math.max(15,st.live.range52*0.7+15)).toFixed(0);
     }
     var baseComp=comp(sc,nw);
     // Factor Consensus Bonus: reward stocks strong across multiple categories
@@ -517,7 +665,7 @@ function getRanked(){
     if(+sc.t.shY>5)cats++;
     var bonus=Math.max(0,(cats-2))*1.5;
     var finalComp=Math.min(100,+baseComp+bonus).toFixed(1);
-    return{t:st.t,n:st.n,s:st.s,p:st.p,mc:st.mc,r:st.r,co:st.co,sc:sc,comp:finalComp,live:!!st.live,consensus:cats};
+    return{t:st.t,n:st.n,s:st.s,p:st.p,mc:st.mc,r:st.r,co:st.co,sc:sc,comp:finalComp,live:st.live||false,consensus:cats};
   });
   arr.sort(function(a,b){return b.comp-a.comp});
   // Sector diversification: penalize 4th+ stock from same sector
@@ -652,7 +800,7 @@ function renderRefreshBar(){
   else{var isLive=S.lastSource.indexOf("Live")>=0;var dotColor=isLive?t.buy:"#f59e0b";left.appendChild(h("div",{style:{width:"8px",height:"8px",borderRadius:"4px",background:dotColor}}));var stxt=h("div",{style:{fontSize:"11px",color:t.ts}});stxt.appendChild(h("span",{style:{fontWeight:"600",color:t.text}},fmtTime(S.lastRefresh)));stxt.appendChild(h("span",null," \u00B7 "+fmtDate(S.lastRefresh)));left.appendChild(stxt)}
   inner.appendChild(left);
   var right=h("div",{style:{display:"flex",alignItems:"center",gap:"6px"}});
-  var hasKey=S.provider==="finnhub"?S.finnhubKey:S.apiKey;
+  var hasKey=S.provider==="eodhd"?S.eodhKey:S.provider==="finnhub"?S.finnhubKey:S.apiKey;
   right.appendChild(h("button",{style:{display:"flex",alignItems:"center",gap:"5px",padding:"6px 12px",borderRadius:"8px",border:"1px solid "+t.buy+"66",background:hasKey?t.buyGlow:t.tm+"15",color:hasKey?t.buy:t.tm,fontSize:"11px",fontWeight:"600",fontFamily:"inherit",opacity:S.loading?"0.5":"1"},onClick:function(){if(!S.loading)fetchLive()}},"\u26A1 "+(hasKey?"Live Refresh":"Set API Key")));
   right.appendChild(h("button",{style:{display:"flex",alignItems:"center",gap:"5px",padding:"6px 12px",borderRadius:"8px",border:"1px solid "+t.accent+"66",background:t.accentGlow,color:t.accent,fontSize:"11px",fontWeight:"600",fontFamily:"inherit",opacity:S.loading?"0.5":"1"},onClick:function(){if(!S.loading)refreshData()}},"\u21BB Simulate"));
   right.appendChild(h("span",{style:{padding:"3px 8px",borderRadius:"6px",fontSize:"9px",fontWeight:"700",background:(S.lastSource.indexOf("Live")>=0?t.buy:t.tm)+"22",color:S.lastSource.indexOf("Live")>=0?t.buy:t.tm,textTransform:"uppercase"}},S.lastSource.indexOf("Live")>=0?"LIVE":"SIMULATED"));
@@ -761,10 +909,15 @@ function renderScreener(){
         exec.appendChild(riskDiv);
       }
       // Key metrics grid
-      var metGrid=h("div",{style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"8px",padding:"10px",background:t.surface,borderRadius:"10px"}});
-      [{l:"EY",v:st.sc.g.ey+"%"},{l:"ROIC",v:st.sc.g.roic+"%"},{l:"P/B",v:st.sc.t.pb},{l:"Moat",v:st.sc.m.moat+"/5"},
-       {l:"Mom",v:st.sc.s.mom},{l:"RSI",v:st.sc.s.rsi},{l:"F-Score",v:st.sc.p.fscore+"/9"},{l:"Z-Score",v:st.sc.a.z}
-      ].forEach(function(m){
+      var metItems=[{l:"EY",v:st.sc.g.ey+"%"},{l:"ROIC",v:st.sc.g.roic+"%"},{l:"P/B",v:st.sc.t.pb},{l:"Moat",v:st.sc.m.moat+"/5"},
+       {l:"Mom",v:st.sc.s.mom},{l:"RSI",v:st.sc.s.rsi},{l:"F-Score",v:st.sc.p.fscore+"/9"},{l:"Z-Score",v:st.sc.a.z}];
+      // Add EODHD-specific metrics when available
+      if(st.live&&st.live.beta!=null)metItems.push({l:"Beta",v:(+st.live.beta).toFixed(2)});
+      if(st.live&&st.live.ema50&&st.live.ema200){var trend=st.live.ema50>st.live.ema200?"\u2191 Bull":"\u2193 Bear";metItems.push({l:"EMA Trend",v:trend})}
+      if(st.live&&st.live.hi52&&st.live.lo52){metItems.push({l:"52W Range",v:st.live.range52+"%"})}
+      var metCols=metItems.length>8?"repeat(5,1fr)":"repeat(4,1fr)";
+      var metGrid=h("div",{style:{display:"grid",gridTemplateColumns:metCols,gap:"8px",padding:"10px",background:t.surface,borderRadius:"10px"}});
+      metItems.forEach(function(m){
         var cell=h("div",{style:{textAlign:"center"}});
         cell.appendChild(h("div",{style:{fontSize:"8px",color:t.tm,textTransform:"uppercase",marginBottom:"2px"}},m.l));
         cell.appendChild(h("div",{className:"mono",style:{fontSize:"12px",fontWeight:"600",color:t.text}},m.v+""));
@@ -1209,7 +1362,7 @@ function renderSettings(){
   var dc=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",maxWidth:"600px",marginTop:"12px"}});
   dc.appendChild(h("h3",{style:{margin:"0 0 10px",fontSize:"15px",fontWeight:"600"}},"\u26a1 API Data Provider"));
   var provRow=h("div",{style:{display:"flex",gap:"0",marginBottom:"14px",borderRadius:"8px",overflow:"hidden",border:"1px solid "+t.border}});
-  [["finnhub","Finnhub (Recommended)"],["fmp","FMP (Legacy)"]].forEach(function(p){
+  [["eodhd","EODHD ($19.99)"],["finnhub","Finnhub (Free)"],["fmp","FMP (Free)"]].forEach(function(p){
     var active=S.provider===p[0];
     provRow.appendChild(h("button",{style:{
       flex:"1",padding:"10px 12px",border:"none",fontSize:"12px",fontWeight:"600",fontFamily:"inherit",
@@ -1219,7 +1372,44 @@ function renderSettings(){
   });
   dc.appendChild(provRow);
 
-  if(S.provider==="finnhub"){
+  if(S.provider==="eodhd"){
+    var edRow=h("div",{style:{marginBottom:"14px"}});
+    edRow.appendChild(h("label",{style:{fontSize:"12px",fontWeight:"600",display:"block",marginBottom:"4px",color:t.text}},"EODHD API Key"));
+    edRow.appendChild(h("p",{style:{fontSize:"11px",color:t.tm,marginBottom:"6px",lineHeight:"1.4"}},"100K calls/day \u00b7 EOD prices + market cap + beta + EMAs + dividends. Sign up at eodhd.com"));
+    var edInput=h("input",{type:"password",value:S.eodhKey||"",placeholder:"Paste your EODHD API key here...",style:{
+      width:"100%",padding:"10px 12px",borderRadius:"8px",border:"1px solid "+t.border,
+      background:t.surface,color:t.text,fontSize:"13px",fontFamily:"'JetBrains Mono',monospace",
+      outline:"none",transition:"border .2s"
+    },onInput:function(e){S.eodhKey=e.target.value.trim();try{localStorage.setItem("mexxie_eodh_key",S.eodhKey)}catch(x){}},onFocus:function(){this.style.borderColor=t.accent},onBlur:function(){this.style.borderColor=t.border}});
+    edRow.appendChild(edInput);
+    dc.appendChild(edRow);
+    // What's included info
+    var infoBox=h("div",{style:{padding:"10px 12px",background:t.accentGlow,border:"1px solid "+t.accent+"33",borderRadius:"8px",marginBottom:"14px"}});
+    infoBox.appendChild(h("div",{style:{fontSize:"11px",fontWeight:"600",color:t.accent,marginBottom:"4px"}},"\u2728 EODHD Data Enrichment"));
+    infoBox.appendChild(h("div",{style:{fontSize:"10px",color:t.ts,lineHeight:"1.6"}},
+      "\u2705 EOD Prices (OHLCV) \u00b7 \u2705 Market Cap \u00b7 \u2705 Beta\n"+
+      "\u2705 EMA 50/200 day \u00b7 \u2705 52-Week High/Low\n"+
+      "\u2705 Avg Volume (14d/50d/200d) \u00b7 \u2705 Dividend History\n"+
+      "\u274c Fundamentals (P/E, P/B, ROE) \u2014 use Finnhub/FMP first, then enrich with EODHD"));
+    dc.appendChild(infoBox);
+    var testRow0=h("div",{style:{display:"flex",gap:"8px",alignItems:"center",marginBottom:"14px"}});
+    var testBtn0=h("button",{style:{
+      padding:"8px 16px",borderRadius:"8px",border:"1px solid "+t.buy+"66",
+      background:t.buyGlow,color:t.buy,fontSize:"12px",fontWeight:"600",fontFamily:"inherit"
+    },onClick:async function(){
+      if(!S.eodhKey){alert("Enter an EODHD API key first.\n\nSign up at: eodhd.com");return}
+      try{
+        var r=await fetch(API_BASE+"/eodhd/test?key="+encodeURIComponent(S.eodhKey));
+        var d=await r.json();
+        if(d&&d.ok){alert("\u2705 EODHD connected! AAPL last close: $"+d.lastClose)}
+        else{alert("API Error: "+(d.error||"Unknown error"))}
+      }catch(e){alert("Connection failed: "+e.message+"\n\nMake sure the Mexxie API server is running on port 3001.")}
+    }},"\u26a1 Test Connection");
+    testRow0.appendChild(testBtn0);
+    if(S.eodhKey){testRow0.appendChild(h("span",{style:{fontSize:"11px",color:t.buy}},"\u2713 Key entered"));}
+    else{testRow0.appendChild(h("span",{style:{fontSize:"11px",color:t.tm}},"No key \u2014 sign up at eodhd.com"));}
+    dc.appendChild(testRow0);
+  }else if(S.provider==="finnhub"){
     var fhRow=h("div",{style:{marginBottom:"14px"}});
     fhRow.appendChild(h("label",{style:{fontSize:"12px",fontWeight:"600",display:"block",marginBottom:"4px",color:t.text}},"Finnhub API Key"));
     fhRow.appendChild(h("p",{style:{fontSize:"11px",color:t.tm,marginBottom:"6px",lineHeight:"1.4"}},"Free: 60 calls/min, NO daily limit. Sign up at finnhub.io/register"));
@@ -1283,8 +1473,8 @@ function renderSettings(){
     padding:"6px 12px",borderRadius:"8px",border:"1px solid "+t.border,
     background:t.surface,color:t.tm,fontSize:"11px",fontWeight:"600",fontFamily:"inherit"
   },onClick:function(){
-    try{localStorage.removeItem("mexxie_ratios_cache");localStorage.removeItem("mexxie_finnhub_cache");localStorage.removeItem("mexxie_api_key");localStorage.removeItem("mexxie_finnhub_key")}catch(e){}
-    S.apiKey="gi9xNO7CWDJhG2xupgJaO0wuarOBRUei";S.finnhubKey="d6ebj19r01qloir5vun0d6ebj19r01qloir5vung";
+    try{localStorage.removeItem("mexxie_ratios_cache");localStorage.removeItem("mexxie_finnhub_cache");localStorage.removeItem("mexxie_api_key");localStorage.removeItem("mexxie_finnhub_key");localStorage.removeItem("mexxie_eodh_key")}catch(e){}
+    S.apiKey="gi9xNO7CWDJhG2xupgJaO0wuarOBRUei";S.finnhubKey="d6ebj19r01qloir5vun0d6ebj19r01qloir5vung";S.eodhKey="";
     alert("All caches and keys cleared.");render();
   }},"\ud83d\uddd1 Clear All Cache"));
   var cacheInfo="";
