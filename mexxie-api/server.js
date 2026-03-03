@@ -4,9 +4,10 @@ const db = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const IS_PROD = !!process.env.DATABASE_URL;
+// IS_PROD: true on Railway (has RAILWAY_ENVIRONMENT) or when DATABASE_URL is set
+const IS_PROD = !!process.env.RAILWAY_ENVIRONMENT || !!process.env.DATABASE_URL;
 
-// CORS — local dev restricts origins; Railway allows all (GitHub Pages, etc.)
+// CORS — always open on Railway so GitHub Pages can reach the API
 app.use(cors(IS_PROD
   ? { origin: '*' }
   : { origin: ['http://localhost:8080','http://127.0.0.1:8080','http://localhost:3000','http://127.0.0.1:3000'] }
