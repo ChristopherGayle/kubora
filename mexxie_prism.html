@@ -1414,6 +1414,8 @@ function renderSettings(){
     background:t.accent,color:"#fff",fontSize:"11px",fontWeight:"700",fontFamily:"inherit",cursor:"pointer"
   },onClick:async function(){
     var val=urlInput.value.trim();
+    if(val&&!val.match(/^https?:\/\//))val='https://'+val;
+    urlInput.value=val;
     try{localStorage.setItem("mexxie_api_url",val)}catch(x){}
     API_BASE=val?val.replace(/\/$/,'')+'/api':(window.location.hostname==='localhost'||window.location.hostname==='127.0.0.1')?'http://localhost:3001/api':'';
     urlStatus.textContent="⏳ Testing...";
