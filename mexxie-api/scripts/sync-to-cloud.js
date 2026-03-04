@@ -14,7 +14,9 @@ const QUESTDB_URL = process.env.QUESTDB_URL || 'http://localhost:9000';
 const CLOUD_API   = (process.argv[2] || 'https://kubora-production.up.railway.app').replace(/\/$/, '') + '/api';
 const BATCH_SIZE  = 200;
 
-const REGION_FLAGS = { US:'🇺🇸', Europe:'🇪🇺', Asia:'🌏', 'S. America':'🇧🇷', Africa:'🇿🇦' };
+const REGION_FLAGS = { US:'🇺🇸', Europe:'🇪🇺', Asia:'🌏', 'S. America':'🇧🇷', Africa:'🇿🇦', OTCQX:'🇺🇸' };
+// OTCQX is US-traded OTC (The Best Market) — maps to US region for display
+const REGION_NORMALIZE = { OTCQX:'US' };
 const SECTOR_MAP = {
   'Technology':'Technology','Healthcare':'Healthcare','Finance':'Finance',
   'Financial Services':'Finance','Consumer':'Consumer',
@@ -25,7 +27,7 @@ const SECTOR_MAP = {
 };
 
 async function queryQuestDB(sql) {
-  const url = QUESTDB_URL + '/exec?query=' + encodeURIComponent(sql) + '&limit=10000';
+  const url = QUESTDB_URL + '/exec?query=' + encodeURIComponent(sql) + '&limit=25000';
   const res = await fetch(url);
   if (!res.ok) throw new Error('QuestDB HTTP error: ' + res.status);
   const data = await res.json();
@@ -63,7 +65,7 @@ async function main() {
     JOIN (SELECT symbol, close FROM daily_prices LATEST ON timestamp PARTITION BY symbol) dp
     ON s.symbol = dp.symbol
     WHERE dp.close > 0.5
-    AND s.region IN ('US', 'Europe', 'Asia', 'S. America', 'Africa')
+    AND s.region IN ('US', 'Europe', 'Asia', 'S. America', 'Africa', 'OTCQX')
     ORDER BY s.region, dp.close DESC
   `;
 
@@ -79,15 +81,18 @@ async function main() {
   console.log('✅ Found', rows.length, 'stocks in local QuestDB');
 
   // 2. Transform to API format
-  const stocks = rows.map(r => ({
-    t: r.symbol,
-    n: r.name || r.symbol,
-    s: SECTOR_MAP[r.sector] || r.sector || 'Other',
-    r: r.region,
-    co: REGION_FLAGS[r.region] || '🌍',
-    p: +(+r.close).toFixed(2),
-    mc: 0
-  }));
+  const stocks = rows.map(r => {
+    const region = REGION_NORMALIZE[r.region] || r.region;
+    return {
+      t: r.symbol,
+      n: r.name || r.symbol,
+      s: SECTOR_MAP[r.sector] || r.sector || 'Other',
+      r: region,
+      co: REGION_FLAGS[r.region] || '🌍',
+      p: +(+r.close).toFixed(2),
+      mc: 0
+    };
+  });
 
   // 3. Push to Railway in batches
   console.log('Pushing to Railway in batches of', BATCH_SIZE, '...');
