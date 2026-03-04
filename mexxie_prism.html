@@ -648,7 +648,7 @@ var S={
   eodhKey:(function(){try{return localStorage.getItem("mexxie_eodh_key")||""}catch(e){return""}})(),
   loading:false,loadingMsg:"",lastSource:"Simulated",lastCalls:0,lastErrors:[],
   expandedStock:null,
-  minMcap:(function(){try{return +localStorage.getItem("mexxie_min_mcap")||0}catch(e){return 0}})(),
+  capSize:(function(){try{return localStorage.getItem("mexxie_cap_size")||"all"}catch(e){return"all"}})(),
   prior:[
     {t:"MSFT",n:"Microsoft Corp.",co:"\uD83C\uDDFA\uD83C\uDDF8",date:"2025-09-15",entry:398.2,curr:445.2,act:null},
     {t:"NOVO-B",n:"Novo Nordisk A/S",co:"\uD83C\uDDE9\uD83C\uDDF0",date:"2025-08-10",entry:620.4,curr:685.3,act:null},
@@ -665,7 +665,9 @@ function getRanked(){
   var nw=nW();var pool=ALL_STOCKS;
   if(S.region!=="Worldwide")pool=pool.filter(function(x){return x.r===S.region});
   if(S.sector!=="All")pool=pool.filter(function(x){return x.s===S.sector});
-  if(S.minMcap>0)pool=pool.filter(function(x){return x.mc>=S.minMcap});
+  // Market cap tier filter — only applies to stocks with known mc (mc>0)
+  var CAP_RANGES={mega:{min:200,max:Infinity},large:{min:10,max:200},mid:{min:2,max:10},small:{min:0.25,max:2},micro:{min:0.15,max:0.3}};
+  if(S.capSize&&S.capSize!=="all"){var cr=CAP_RANGES[S.capSize];if(cr)pool=pool.filter(function(x){return x.mc>0&&x.mc>=cr.min&&x.mc<cr.max});}
   var arr=pool.map(function(st,i){
     var idx=ALL_STOCKS.indexOf(st);var sc=genSc(idx);
     if(st.live){
@@ -851,12 +853,35 @@ function renderScreener(){
   var ss=h("select",{style:{fontSize:"13px"},onChange:function(e){S.sector=e.target.value;render()}});
   ss.appendChild(h("option",{value:"All"},"All"));SECTORS.forEach(function(s){ss.appendChild(h("option",{value:s},s))});ss.value=S.sector;
   sb.appendChild(ss);ct.appendChild(sb);
-  // Market cap filter
-  var mcb=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"10px",padding:"6px 12px",display:"flex",alignItems:"center",gap:"6px"}});
-  mcb.appendChild(h("span",{style:{fontSize:"10px",color:t.tm,textTransform:"uppercase",fontWeight:"600"}},"Min Cap"));
-  var mcs=h("select",{style:{fontSize:"13px"},onChange:function(e){S.minMcap=+e.target.value;try{localStorage.setItem("mexxie_min_mcap",S.minMcap)}catch(x){}render()}});
-  [{v:0,l:"Any"},{v:0.5,l:">$500M"},{v:1,l:">$1B"},{v:5,l:">$5B"},{v:10,l:">$10B"},{v:50,l:">$50B"},{v:100,l:">$100B"}].forEach(function(o){var opt=h("option",{value:o.v},o.l);if(S.minMcap===o.v)opt.selected=true;mcs.appendChild(opt)});
-  mcb.appendChild(mcs);ct.appendChild(mcb);
+  // Market cap tier filter pill bar
+  var capTiers=[
+    {k:"all",  l:"All",       sub:"Any size",           col:t.tm},
+    {k:"mega", l:"Mega",      sub:">$200B",              col:"#6366f1"},
+    {k:"large",l:"Large",     sub:"$10–200B",            col:"#0ea5e9"},
+    {k:"mid",  l:"Mid",       sub:"$2–10B",              col:"#10b981"},
+    {k:"small",l:"Small",     sub:"$250M–2B",            col:"#f59e0b"},
+    {k:"micro",l:"Micro",     sub:"$150–300M · OTC",     col:"#f97316"}
+  ];
+  var capBar=h("div",{style:{display:"flex",gap:"0",borderRadius:"10px",overflow:"hidden",border:"1px solid "+t.border,flexShrink:"0"}});
+  capTiers.forEach(function(tier){
+    var active=S.capSize===tier.k;
+    var btn=h("div",{
+      title:tier.l+" cap: "+tier.sub,
+      style:{
+        padding:"5px 10px",cursor:"pointer",userSelect:"none",
+        background:active?tier.col+"22":"transparent",
+        color:active?tier.col:t.tm,
+        borderBottom:active?"2px solid "+tier.col:"2px solid transparent",
+        borderRight:"1px solid "+t.border,
+        fontSize:"10px",fontWeight:"700",letterSpacing:".3px",
+        transition:"all .15s",whiteSpace:"nowrap",
+        display:"flex",flexDirection:"column",alignItems:"center",gap:"1px"
+      },
+      onClick:function(){S.capSize=tier.k;try{localStorage.setItem("mexxie_cap_size",tier.k)}catch(x){}render()}
+    },h("span",{},tier.l),h("span",{style:{fontSize:"9px",fontWeight:"400",opacity:"0.75"}},tier.sub));
+    capBar.appendChild(btn);
+  });
+  ct.appendChild(capBar);
   // Regime pills
   var mrPills=h("div",{style:{display:"flex",gap:"0",borderRadius:"8px",overflow:"hidden",border:"1px solid "+t.border}});
   ["overvalued","neutral","undervalued"].forEach(function(rk){var rp=REGIME_PRESETS[rk];var active=S.regime===rk;var ac=rk==="overvalued"?"#dc2626":rk==="undervalued"?"#16a34a":t.accent;mrPills.appendChild(h("button",{style:{padding:"5px 12px",border:"none",fontSize:"10px",fontWeight:"700",fontFamily:"inherit",background:active?ac+"22":"transparent",color:active?ac:t.tm,borderBottom:active?"2px solid "+ac:"2px solid transparent",transition:"all .2s"},onClick:function(){S.regime=rk;var w=REGIME_PRESETS[rk].weights;Object.keys(w).forEach(function(k){S.weights[k]=w[k]});render()}},rp.label))});

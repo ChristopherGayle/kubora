@@ -73,6 +73,24 @@ router.post('/', async (req, res) => {
   res.json({ inserted, errors: errors.length ? errors : undefined });
 });
 
+// POST /api/stocks/reset — truncate universe and re-seed with 122 curated stocks (PostgreSQL only)
+router.post('/reset', async (req, res) => {
+  if (!db.isPg) return res.status(400).json({ error: 'Reset only available on PostgreSQL (Railway)' });
+  try {
+    await db.exec('TRUNCATE TABLE prism_stock_universe');
+    // Re-seed via migrate
+    const migrate = require('../migrate');
+    await migrate();
+    const countRes = await db.query(
+      "SELECT COUNT(*) as cnt FROM (SELECT DISTINCT ON (ticker) ticker FROM prism_stock_universe WHERE active = true ORDER BY ticker, ts DESC) sub"
+    );
+    const total = countRes.ok ? parseInt(countRes.rows[0].cnt) : 0;
+    res.json({ ok: true, message: 'Universe reset to curated stocks', total });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // POST /api/stocks/import-etl — pull from QuestDB ETL tables (local dev only)
 router.post('/import-etl', async (req, res) => {
   if (db.isPg) {
