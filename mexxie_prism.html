@@ -1540,44 +1540,14 @@ function renderSettings(){
     else{testRow2.appendChild(h("span",{style:{fontSize:"11px",color:t.tm}},"No key \u2014 using simulated data"));}
     dc.appendChild(testRow2);
   }
-  // ── Import from ETL ──────────────────────────────────────────────
+  // ── Stock Universe Info ───────────────────────────────────────────
   var importSection=h("div",{style:{marginBottom:"18px",padding:"12px 14px",background:t.surface,border:"1px solid "+t.border,borderRadius:"10px"}});
-  importSection.appendChild(h("div",{style:{fontSize:"12px",fontWeight:"700",color:t.text,marginBottom:"4px"}},"📥 Stock Universe Import"));
-  importSection.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,marginBottom:"10px",lineHeight:"1.4"}},"Pull stocks from your QuestDB ETL pipeline (stocks + daily_prices) into the Prism universe. Safe to re-run — only adds new tickers."));
-  var importRow=h("div",{style:{display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap"}});
-  var importStatus=h("span",{style:{fontSize:"11px",color:t.tm}},API_AVAILABLE?"API connected":"API offline — start mexxie-api first");
-  var importBtn=h("button",{style:{
-    padding:"6px 14px",borderRadius:"8px",border:"none",
-    background:API_AVAILABLE?t.accent:"#888",color:"#fff",
-    fontSize:"11px",fontWeight:"700",fontFamily:"inherit",cursor:API_AVAILABLE?"pointer":"not-allowed"
-  },onClick:async function(){
-    if(!API_AVAILABLE){alert("Mexxie API not running.\n\nStart it with:\n  cd mexxie-api && npm start");return}
-    importBtn.textContent="⏳ Importing...";importBtn.disabled=true;importStatus.textContent="Contacting API...";
-    try{
-      var r=await fetch(API_BASE+"/stocks/import-etl",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
-      var d=await r.json();
-      if(r.ok){
-        var msg="✅ "+d.inserted+" new stocks imported · "+d.total+" total";
-        if(d.breakdown&&d.breakdown.length){
-          msg+=" ("+d.breakdown.map(function(x){return x.region+": "+x.cnt}).join(", ")+")";
-        }
-        importStatus.textContent=msg;
-        importStatus.style.color=t.buy;
-        // Reload stock universe to pick up new stocks
-        if(d.inserted>0){await loadStockUniverse();render();}
-      }else{
-        importStatus.textContent="❌ "+(d.error||"Import failed");
-        importStatus.style.color=t.sell;
-      }
-    }catch(e){
-      importStatus.textContent="❌ Network error: "+e.message;
-      importStatus.style.color=t.sell;
-    }
-    importBtn.textContent="📥 Import from ETL";importBtn.disabled=false;
-  }},"📥 Import from ETL");
-  importRow.appendChild(importBtn);
-  importRow.appendChild(importStatus);
-  importSection.appendChild(importRow);
+  importSection.appendChild(h("div",{style:{fontSize:"12px",fontWeight:"700",color:t.text,marginBottom:"4px"}},"📥 Stock Universe"));
+  importSection.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,lineHeight:"1.5"}},
+    API_AVAILABLE
+      ? "✅ Connected to cloud DB · "+ALL_STOCKS.length.toLocaleString()+" stocks loaded. To expand the universe, run the sync script from your Terminal:\n  node mexxie-api/scripts/sync-to-cloud.js"
+      : "⚠️ Not connected. Enter your Railway URL above and click Save & Test."
+  ));
   dc.appendChild(importSection);
 
   // Clear cache
