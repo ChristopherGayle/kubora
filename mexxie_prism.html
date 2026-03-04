@@ -83,11 +83,13 @@ var THEMES={
 };
 var SECTORS=["Technology","Healthcare","Finance","Consumer","Energy","Industrial","Materials","Utilities","Real Estate","Telecom","Other"];
 // ===================== API CONFIGURATION =====================
-// Auto-detect: localhost → local API on 3001; remote → use saved Railway URL from Settings
+// Auto-detect: saved URL → localhost:3001 → Railway production (default for GitHub Pages)
+var RAILWAY_DEFAULT='https://kubora-production.up.railway.app/api';
 var API_BASE=(function(){
   try{var saved=localStorage.getItem('mexxie_api_url');if(saved&&saved.trim())return saved.trim().replace(/\/$/,'')+'/api';}catch(e){}
   var h=window.location.hostname;
-  return(h==='localhost'||h==='127.0.0.1')?'http://localhost:3001/api':'';
+  if(h==='localhost'||h==='127.0.0.1')return 'http://localhost:3001/api';
+  return RAILWAY_DEFAULT; // GitHub Pages / any non-localhost → always try Railway
 })();
 var API_AVAILABLE=false;
 
