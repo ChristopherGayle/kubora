@@ -1,0 +1,63 @@
+# ── Mexxie Prism — LOCAL DEVELOPMENT ──────────────────────────────
+# Runs QuestDB + Express API together on your laptop.
+# Replaces running both processes manually.
+#
+# Usage:
+#   docker compose up          (start everything)
+#   docker compose up -d       (start in background)
+#   docker compose down        (stop and remove containers)
+#   docker compose logs -f     (follow logs)
+#   docker compose down -v     (stop + wipe QuestDB data — full reset)
+#
+# After starting:
+#   QuestDB Web Console: http://localhost:9000
+#   API Health:          http://localhost:3001/api/health
+#   App (local):         http://localhost:8080/mexxie_prism.html
+
+name: mexxie-local
+
+services:
+
+  # ── QuestDB ─────────────────────────────────────────────────────
+  questdb:
+    image: questdb/questdb:8.1.4
+    container_name: mexxie-questdb
+    ports:
+      - "9000:9000"   # HTTP REST API + Web Console
+      - "9009:9009"   # InfluxDB line protocol (for ETL ingestion)
+      - "8812:8812"   # PostgreSQL wire protocol
+    volumes:
+      - questdb_data:/root/.questdb    # Persist all QuestDB data
+    environment:
+      - QDB_HTTP_ENABLED=true
+      - QDB_PG_ENABLED=true
+      - QDB_LINE_TCP_ENABLED=true
+      # Disable authentication for local dev
+      - QDB_HTTP_SECURITY_ENABLED=false
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9000/exec?query=SELECT+1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  # ── Express API ─────────────────────────────────────────────────
+  mexxie-api:
+    build:
+      context: ./mexxie-api
+      dockerfile: Dockerfile
+    container_name: mexxie-api
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - QUESTDB_URL=http://questdb:9000    # Points to the questdb container above
+    depends_on:
+      questdb:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  questdb_data:
+    name: mexxie_questdb_data    # Named volume persists across `docker compose down`
