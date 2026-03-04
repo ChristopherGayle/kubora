@@ -717,7 +717,7 @@ function getRanked(){
       // EODHD: use 52-week range position as RSI proxy when real RSI unavailable
       if(st.live.range52!=null&&st.live.ema200)sc.s.rsi=+Math.min(85,Math.max(15,st.live.range52*0.7+15)).toFixed(0);
       // Druckenmiller: real beta from EODHD (ideal 1.0-1.8 for macro-aligned growth)
-      if(st.live.beta!=null)sc.s.beta=+st.live.beta.toFixed(2);
+      if(st.live.beta!=null){var bn=+(st.live.beta);if(!isNaN(bn))sc.s.beta=+bn.toFixed(2);}
     }
     var baseComp=comp(sc,nw);
     // Factor Consensus Bonus: reward stocks strong across multiple categories
@@ -1029,7 +1029,7 @@ function renderScreener(){
       var metItems=[{l:"EY",v:st.sc.g.ey+"%"},{l:"ROIC",v:st.sc.g.roic+"%"},{l:"P/B",v:st.sc.t.pb},{l:"Moat",v:st.sc.m.moat+"/5"},
        {l:"Mom",v:st.sc.s.mom},{l:"RSI",v:st.sc.s.rsi},{l:"F-Score",v:st.sc.p.fscore+"/9"},{l:"Z-Score",v:st.sc.a.z}];
       // Add EODHD-specific metrics when available
-      if(st.live&&st.live.beta!=null)metItems.push({l:"Beta",v:(+st.live.beta).toFixed(2)});
+      if(st.live&&st.live.beta!=null&&!isNaN(+st.live.beta))metItems.push({l:"Beta",v:(+st.live.beta).toFixed(2)});
       if(st.live&&st.live.ema50&&st.live.ema200){var trend=st.live.ema50>st.live.ema200?"\u2191 Bull":"\u2193 Bear";metItems.push({l:"EMA Trend",v:trend})}
       if(st.live&&st.live.hi52&&st.live.lo52){metItems.push({l:"52W Range",v:st.live.range52+"%"})}
       var metCols=metItems.length>8?"repeat(5,1fr)":"repeat(4,1fr)";
