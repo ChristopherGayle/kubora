@@ -331,8 +331,15 @@ var STRAT_DETAILS=[
 ];
 // ===================== SCORING =====================
 function sR(seed){var x=Math.sin(seed)*10000;return x-Math.floor(x)}
+// Score cache — clears automatically when dataSeed changes (Simulate/Refresh)
+var _SC={};var _SCSeed=null;
+// Deep clone a score object so live-data mutations don't corrupt the cache
+function _cloneSc(r){return{g:Object.assign({},r.g),t:Object.assign({},r.t),m:Object.assign({},r.m),s:Object.assign({},r.s),p:{fscore:r.p.fscore,pf:Object.assign({},r.p.pf)},a:Object.assign({},r.a)}}
 function genSc(idx){
   var base=S.dataSeed||1;
+  // Clear cache when seed changes (new Simulate or Live Refresh)
+  if(_SCSeed!==base){_SC={};_SCSeed=base}
+  if(_SC[idx])return _cloneSc(_SC[idx]);
   var s=function(n){return sR(idx*17+base+n)};
   var pf={roa:s(14)>0.35,cfo:s(15)>0.3,droa:s(16)>0.4,accrual:s(17)>0.45,dlev:s(18)>0.4,dliq:s(19)>0.35,issue:s(20)>0.5,dmargin:s(21)>0.4,dturn:s(22)>0.35};
   var fscore=Object.values(pf).filter(Boolean).length;
@@ -343,7 +350,7 @@ function genSc(idx){
   var revQ=Math.floor(s(27)*9);
   var shortInt=+(s(28)*30).toFixed(1);
   var beta=+(0.4+s(29)*1.8).toFixed(2); // simulated beta 0.4–2.2
-  return{
+  var result={
     g:{ey:+(5+s(1)*20).toFixed(1),roic:+(8+s(2)*40).toFixed(1),rk:Math.floor(s(3)*100)+1,evEbit:evEbit},
     t:{pb:+(0.5+s(4)*3.5).toFixed(2),ins:s(5)>0.5,dy:+(0.5+s(6)*5).toFixed(1),fcf:+(2+s(7)*12).toFixed(1),shY:shY},
     m:{moat:Math.floor(s(8)*5)+1,qual:+(60+s(9)*40).toFixed(0),mgmt:+(50+s(10)*50).toFixed(0),revQ:revQ},
@@ -351,6 +358,8 @@ function genSc(idx){
     p:{fscore:fscore,pf:pf},
     a:{z:altZ,safe:altZ>2.99,grey:altZ>=1.81&&altZ<=2.99,distress:altZ<1.81}
   };
+  _SC[idx]=result;
+  return _cloneSc(result);
 }
 function comp(sc,w){
   var g=(sc.g.ey/25*35+sc.g.roic/48*35+(100-sc.g.rk)/100*20+Math.max(0,(25-sc.g.evEbit)/25)*10)/100;
@@ -392,6 +401,9 @@ function fmtTime(d){if(!d)return"Never";var h=d.getHours(),m=d.getMinutes(),s=d.
 function fmtDate(d){if(!d)return"";var months=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];return months[d.getMonth()]+" "+d.getDate()+", "+d.getFullYear()}
 function batchArray(arr,size){var r=[];for(var i=0;i<arr.length;i+=size)r.push(arr.slice(i,i+size));return r}
 // ===================== API =====================
+// EODHD in-memory bulk cache — avoids re-fetching within 15 minutes of a Live Refresh
+var _eodhdBulkCache={ts:0,quoteMap:null};
+var EODHD_BULK_TTL=15*60*1000;
 var FMP_BASE="https://financialmodelingprep.com/stable";
 var FMP_TICKERS={"NOVO-B":"NVO","ROG":"RHHBY","NESN":"NSRGY","MC":"LVMHF","SHEL":"SHEL","TTE":"TTE","SIE":"SIEGY","HSBA":"HSBC","UBS":"UBS","OR":"LRLCY","BAYN":"BAYRY","DTE":"DTEGY","ENEL":"ENLAY","ABB":"ABB","VOW3":"VWAGY","SU.PA":"SBGSY","AIR.PA":"EADSY","RMS.PA":"HESAY","ALV.DE":"ALIZY","BNP.PA":"BNPQY","DGE.L":"DEO","IBE.MC":"IBDRY","9984":"SFTBY","005930":"SSNLF","7203":"TM","9988":"BABA","0700":"TCEHY","RELIANCE":"RELIANCE.NS","TCS":"TCS","6758":"SONY","1398":"IDCBY","7267":"HMC","INFY":"INFY","2317":"HNHPF","6861":"KYCCF","035420":"NPSNY","9433":"KDDIY","4503":"ALPMY","3690":"MPNGY","2454":"MDTKF","CBA":"CMWAY","CRPG":"CMPQF","GGAL":"GGAL","EC":"EC","BSBR":"BSBR","NPN":"NPSNY","BTI":"BTI","AGL":"AAUKF","SOL":"SSL","SBK":"SGBLY","FSR":"FSRZY","MTN":"MTNOY","DANGCEM":"DANGF","SBUX":"SFRPF","EGH":"EGHGF"};
 function fmpTicker(t){return FMP_TICKERS[t]||t}
@@ -435,15 +447,22 @@ async function fetchEODHDLive(){
     // Route through API proxy to avoid CORS — bulk API with filter=extended
     // Use larger batches (100) for efficiency with 3,000+ stock universe
     var batchSize=allToFetch.length>500?100:50;
+    var quoteMap={};
+    // Enhancement: use cached bulk data if less than 15 minutes old
+    var cacheAge=Date.now()-_eodhdBulkCache.ts;
+    if(_eodhdBulkCache.quoteMap&&cacheAge<EODHD_BULK_TTL){
+      quoteMap=_eodhdBulkCache.quoteMap;
+      S.loadingMsg="Using cached prices ("+Math.round(cacheAge/60000)+"m old) — click Refresh to refetch";render();
+    }else{
     S.loadingMsg="Fetching "+allToFetch.length+" tickers via EODHD bulk...";render();
-    var batches=batchArray(allToFetch,batchSize);var quoteMap={};
+    var batches=batchArray(allToFetch,batchSize);
     for(var b=0;b<batches.length;b++){
       var batchSyms=batches[b].join(",");
       var pct=Math.round((b+1)/batches.length*100);
       S.loadingMsg="Pricing "+pct+"% · batch "+(b+1)+"/"+batches.length+" ("+allToFetch.length+" stocks)";render();
       try{
         var r=await fetch(API_BASE+"/eodhd/bulk?key="+encodeURIComponent(key)+"&exchange=US&symbols="+encodeURIComponent(batchSyms));
-        callCount+=100+batches[b].length;
+        callCount+=1; // Bug fix: 1 bulk API call per batch, not 100+batch.length
         if(!r.ok){var errData=await r.json().catch(function(){return{}});errors.push("Bulk API: "+(errData.error||"HTTP "+r.status));continue}
         var data=await r.json();
         if(data&&Array.isArray(data)){
@@ -464,6 +483,9 @@ async function fetchEODHDLive(){
       }catch(e){errors.push("Bulk batch "+(b+1)+" error: "+e.message)}
       if(b<batches.length-1)await new Promise(function(r){setTimeout(r,allToFetch.length>500?150:300)});
     }
+    // Save bulk results to 15-min cache
+    _eodhdBulkCache={ts:Date.now(),quoteMap:quoteMap};
+    } // end cache else block
 
     // Fetch dividends for top 20 stocks only — saves API calls for large universes
     S.loadingMsg="Fetching dividend data for top dividend payers...";render();
@@ -617,7 +639,8 @@ async function fetchRegionValuation(regionKey,key){
   var cfg=REGION_VAL_CONFIG[regionKey];if(!cfg)return null;
   try{var fetches=[fetch(FINNHUB_BASE+"/stock/metric?symbol="+cfg.etf+"&metric=all&token="+key).then(function(r){return r.json()}),fetch(FINNHUB_BASE+"/quote?symbol="+cfg.etf+"&token="+key).then(function(r){return r.json()}),fetch(FINNHUB_BASE+"/quote?symbol=TLT&token="+key).then(function(r){return r.json()})];
   var results=await Promise.all(fetches);var metrics=results[0],etfQuote=results[1],tltQuote=results[2];var m=metrics.metric||{};var pe=m.peTTM||m.peBasicExclExtraTTM||null;var etfPrice=etfQuote.c||null;var cape=pe?Math.round(pe*cfg.capeAdj*10)/10:null;var ey=pe?Math.round(100/pe*100)/100:null;
-  var riskFree=null;if(tltQuote&&tltQuote.c){riskFree=Math.round((13.2-0.09*tltQuote.c)*100)/100;riskFree=Math.max(0.5,Math.min(8,riskFree))}
+  // Bug fix: guard against NaN when TLT price is missing or malformed
+  var riskFree=null;if(tltQuote&&tltQuote.c&&!isNaN(tltQuote.c)){riskFree=Math.round((13.2-0.09*tltQuote.c)*100)/100;riskFree=Math.max(0.5,Math.min(8,riskFree));if(isNaN(riskFree))riskFree=null;}
   var erp=(ey&&riskFree)?Math.round((ey-riskFree)*100)/100:null;var buffett=null;if(cfg.buffBase&&cfg.buffRef&&etfPrice){buffett=Math.round(etfPrice/cfg.buffRef*cfg.buffBase)}
   var signals={cape:cape?(cape>cfg.capeTh[1]?"overvalued":cape<cfg.capeTh[0]?"undervalued":"neutral"):null,buffett:(buffett&&cfg.buffTh)?(buffett>cfg.buffTh[1]?"overvalued":buffett<cfg.buffTh[0]?"undervalued":"neutral"):null,erp:erp?(erp<cfg.erpTh[0]?"overvalued":erp>cfg.erpTh[1]?"undervalued":"neutral"):null};
   var votes={overvalued:0,neutral:0,undervalued:0};Object.values(signals).forEach(function(s){if(s)votes[s]++});
@@ -627,8 +650,11 @@ async function fetchRegionValuation(regionKey,key){
 async function fetchMarketValuation(forceRefresh){
   var region=S.region||"Worldwide";if(!forceRefresh){var cached=loadMVCache(region);if(cached)return cached}var key=S.finnhubKey;if(!key)return null;
   var cfg=REGION_VAL_CONFIG[region];if(!cfg)cfg=REGION_VAL_CONFIG["Worldwide"];
-  if(cfg.blended){try{var regionKeys=Object.keys(cfg.blendWeights);var regResults=await Promise.all(regionKeys.map(function(rk){return fetchRegionValuation(rk,key)}));var wCape=0,wErp=0,wPe=0,totalW=0,allSignals=[];regResults.forEach(function(rr,i){if(!rr)return;var w=cfg.blendWeights[regionKeys[i]];if(rr.cape){wCape+=rr.cape*w;totalW+=w}if(rr.erp)wErp+=rr.erp*w;if(rr.pe)wPe+=rr.pe*w;allSignals.push({region:regionKeys[i],consensus:rr.consensus,cape:rr.cape,weight:w})});
-  var blendedCape=totalW>0?Math.round(wCape/totalW*10)/10:null;var blendedPe=totalW>0?Math.round(wPe/totalW*10)/10:null;var blendedEy=blendedPe?Math.round(100/blendedPe*100)/100:null;var blendedErp=totalW>0?Math.round(wErp/totalW*100)/100:null;
+  if(cfg.blended){try{var regionKeys=Object.keys(cfg.blendWeights);var regResults=await Promise.all(regionKeys.map(function(rk){return fetchRegionValuation(rk,key)}));
+  // Bug fix: track separate weight sums for each metric — failed regions skew blend otherwise
+  var wCape=0,wErp=0,wPe=0,totalW=0,totalWErp=0,totalWPe=0,allSignals=[];
+  regResults.forEach(function(rr,i){if(!rr)return;var w=cfg.blendWeights[regionKeys[i]];if(rr.cape!=null){wCape+=rr.cape*w;totalW+=w}if(rr.erp!=null){wErp+=rr.erp*w;totalWErp+=w}if(rr.pe!=null){wPe+=rr.pe*w;totalWPe+=w}allSignals.push({region:regionKeys[i],consensus:rr.consensus,cape:rr.cape,weight:w})});
+  var blendedCape=totalW>0?Math.round(wCape/totalW*10)/10:null;var blendedPe=totalWPe>0?Math.round(wPe/totalWPe*10)/10:null;var blendedEy=blendedPe?Math.round(100/blendedPe*100)/100:null;var blendedErp=totalWErp>0?Math.round(wErp/totalWErp*100)/100:null;
   var vtResp=await fetch(FINNHUB_BASE+"/quote?symbol=VT&token="+key);var vtData=await vtResp.json();var vtPrice=vtData.c||null;
   var signals={cape:blendedCape?(blendedCape>cfg.capeTh[1]?"overvalued":blendedCape<cfg.capeTh[0]?"undervalued":"neutral"):null,buffett:null,erp:blendedErp?(blendedErp<cfg.erpTh[0]?"overvalued":blendedErp>cfg.erpTh[1]?"undervalued":"neutral"):null};
   var votes={overvalued:0,neutral:0,undervalued:0};Object.values(signals).forEach(function(s){if(s)votes[s]++});var consensus="neutral";if(votes.overvalued>votes.neutral&&votes.overvalued>=votes.undervalued)consensus="overvalued";else if(votes.undervalued>votes.neutral&&votes.undervalued>votes.overvalued)consensus="undervalued";
@@ -669,12 +695,14 @@ function getRanked(){
   var CAP_RANGES={mega:{min:200,max:Infinity},large:{min:10,max:200},mid:{min:2,max:10},small:{min:0.25,max:2},micro:{min:0.15,max:0.3}};
   if(S.capSize&&S.capSize!=="all"){var cr=CAP_RANGES[S.capSize];if(cr)pool=pool.filter(function(x){return x.mc>0&&x.mc>=cr.min&&x.mc<cr.max});}
   var arr=pool.map(function(st,i){
-    var idx=ALL_STOCKS.indexOf(st);var sc=genSc(idx);
+    // Bug fix: use ticker-based lookup — indexOf() fails if objects were cloned
+    var idx=ALL_STOCKS.findIndex(function(s){return s.t===st.t});var sc=genSc(idx);
     if(st.live){
       if(st.live.pb!=null)sc.t.pb=+Math.abs(st.live.pb).toFixed(2);
       if(st.live.divYield!=null)sc.t.dy=+(st.live.divYield*100).toFixed(1);
       if(st.live.roe!=null)sc.g.roic=+(st.live.roe*100).toFixed(1);
-      if(st.live.pe!=null&&st.live.pe>0)sc.g.ey=+(100/st.live.pe).toFixed(1);
+      // Bug fix: negative P/E (loss-making stock) → EY=0, not simulated positive value
+      if(st.live.pe!=null){if(st.live.pe>0)sc.g.ey=+(100/st.live.pe).toFixed(1);else sc.g.ey=0;}
       if(st.live.change!=null)sc.s.mom=+Math.min(100,Math.max(0,50+st.live.change*2)).toFixed(0);
       if(st.live.fcfYield!=null&&st.live.fcfYield>0)sc.t.fcf=+Math.min(14,st.live.fcfYield).toFixed(1);
       if(st.live.debtEquity!=null){sc.p.pf.dlev=st.live.debtEquity<1.5;sc.p.fscore=Object.values(sc.p.pf).filter(Boolean).length}
@@ -891,7 +919,24 @@ function renderScreener(){
   var countLabel=filteredSize+" screened";
   if(universeSize>filteredSize)countLabel+="\u00B7"+universeSize.toLocaleString()+" universe";
   ct.appendChild(h("div",{style:{marginLeft:"auto",fontSize:"11px",color:t.tm}},countLabel+"\u00B7"+S.region));
+  // CSV export button
+  ct.appendChild(h("button",{style:{padding:"4px 10px",borderRadius:"6px",border:"1px solid "+t.border,background:t.card,color:t.ts,fontSize:"10px",fontWeight:"600",fontFamily:"inherit",cursor:"pointer",flexShrink:"0"},title:"Download screener results as CSV",onClick:function(e){e.stopPropagation();
+    var header=["Rank","Ticker","Name","Region","Sector","Price","MarketCap_B","Score","Value","Quality","Momentum","Safety"];
+    var rows=ranked.slice(0,S.numPicks).map(function(st,i){return[i+1,st.t,'"'+st.n.replace(/"/g,"'")+'"',st.r,st.s,st.p,(st.mc||""),st.comp,getValueScore(st.sc).toFixed(0),getQualityScore(st.sc).toFixed(0),getMomentumScore(st.sc).toFixed(0),getSafetyScore(st.sc).toFixed(0)].join(",")});
+    var csv=[header.join(",")].concat(rows).join("\n");
+    var blob=new Blob([csv],{type:"text/csv"});var url=URL.createObjectURL(blob);
+    var a=document.createElement("a");a.href=url;a.download="mexxie-screen-"+new Date().toISOString().slice(0,10)+".csv";a.click();URL.revokeObjectURL(url);
+  }},"📥 CSV"));
   f.appendChild(ct);
+  // Enhancement: warn when cap filter excludes stocks with unknown market cap
+  if(S.capSize&&S.capSize!=="all"){
+    var CAP_RANGES2={mega:{min:200,max:Infinity},large:{min:10,max:200},mid:{min:2,max:10},small:{min:0.25,max:2},micro:{min:0.15,max:0.3}};
+    var cr2=CAP_RANGES2[S.capSize];
+    if(cr2){var unknownMc=ALL_STOCKS.filter(function(x){if(S.region!=="Worldwide"&&x.r!==S.region)return false;if(S.sector!=="All"&&x.s!==S.sector)return false;return!(x.mc>0);}).length;
+      if(unknownMc>0)f.appendChild(h("div",{style:{margin:"0 0 10px",padding:"7px 14px",borderRadius:"8px",background:t.surface,border:"1px solid "+t.border,fontSize:"11px",color:t.ts}},
+        "\u26A0\uFE0F "+unknownMc+" stock"+(unknownMc>1?"s":"")+" excluded \u2014 market cap unknown. Switch to \u201CAll\u201D to include them."));
+    }
+  }
   // Stock cards
   var grid=h("div",{className:"stock-cards"});
   top.forEach(function(st,i){
@@ -912,6 +957,9 @@ function renderScreener(){
     var badges=h("div",{style:{display:"flex",gap:"4px",flexWrap:"wrap"}});
     badges.appendChild(bdg(st.s));badges.appendChild(bdg(st.r,"#a78bfa"));
     if(st.consensus>=4)badges.appendChild(bdg(st.consensus+"/5 factors","#10b981"));
+    // Enhancement: Altman Z distress warning badge
+    if(st.sc.a.distress)badges.appendChild(bdg("\uD83D\uDD34 Distress Risk","#ef4444"));
+    else if(st.sc.a.grey&&st.sc.a.z<2.2)badges.appendChild(bdg("\u26A0\uFE0F Watch","#f59e0b"));
     leftSide.appendChild(badges);
     header.appendChild(leftSide);
     header.appendChild(scoreRing(+st.comp,isHero?72:64,t));
@@ -1144,7 +1192,8 @@ function renderETF(){
 function priorRec(pk){
   var now=new Date();
   var picked=new Date(pk.date);
-  var daysHeld=Math.floor((now-picked)/(1000*60*60*24));
+  // Bug fix: clamp to 0 — future-dated picks would produce negative daysHeld
+  var daysHeld=Math.max(0,Math.floor((now-picked)/(1000*60*60*24)));
   var isLTCG=daysHeld>=365;
   var daysToLTCG=isLTCG?0:Math.max(0,365-daysHeld);
   var pct=((pk.curr-pk.entry)/pk.entry*100);
@@ -1153,13 +1202,15 @@ function priorRec(pk){
   var stObj=ALL_STOCKS.find(function(s){return s.t===pk.t});
   var score=0;
   if(stObj){
-    var idx=ALL_STOCKS.indexOf(stObj);
+    // Bug fix: findIndex by ticker — indexOf fails if object references differ
+    var idx=ALL_STOCKS.findIndex(function(s){return s.t===stObj.t});
     var sc=genSc(idx);
     if(stObj.live){
       if(stObj.live.pb!=null)sc.t.pb=+Math.abs(stObj.live.pb).toFixed(2);
       if(stObj.live.divYield!=null)sc.t.dy=+(stObj.live.divYield*100).toFixed(1);
       if(stObj.live.roe!=null)sc.g.roic=+(stObj.live.roe*100).toFixed(1);
-      if(stObj.live.pe!=null&&stObj.live.pe>0)sc.g.ey=+(100/stObj.live.pe).toFixed(1);
+      // Bug fix: negative P/E → EY=0 not simulated value
+      if(stObj.live.pe!=null){if(stObj.live.pe>0)sc.g.ey=+(100/stObj.live.pe).toFixed(1);else sc.g.ey=0;}
       if(stObj.live.change!=null)sc.s.mom=+Math.min(100,Math.max(0,50+stObj.live.change*2)).toFixed(0);
       if(stObj.live.fcfYield!=null&&stObj.live.fcfYield>0)sc.t.fcf=+Math.min(14,stObj.live.fcfYield).toFixed(1);
     }
