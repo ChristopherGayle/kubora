@@ -434,21 +434,31 @@ var EODHD_TICKERS={
 };
 function eodhdTicker(t){return EODHD_TICKERS[t]||(t+".US")}
 function eodhdSymbol(t){var mapped=eodhdTicker(t);return mapped.split(".")[0]}
+// Determine which EODHD exchange endpoint to use for a given ticker
+var EXCHANGE_MAP={'JSE':'JSE','T':'T','TYO':'T','KQ':'KQ','KS':'KS','HK':'HK','HKEX':'HK','NSE':'NSE','BSE':'BSE','LSE':'LSE','L':'LSE','PA':'PA','DE':'XETRA','XETRA':'XETRA','AS':'AS','BR':'BR','SW':'SW','MC':'MC','MI':'MI','ST':'ST','CO':'CO','OL':'OL','HE':'HE','TSX':'TSX','V':'V'};
+function eodhdExchange(t){
+  if(EODHD_TICKERS[t])return'US'; // explicitly mapped to US ADR
+  var dot=t.lastIndexOf('.');if(dot<0)return'US'; // plain ticker → US
+  var sfx=t.substring(dot+1).toUpperCase();
+  return EXCHANGE_MAP[sfx]||'US';
+}
 
 async function fetchEODHDLive(){
   var key=S.eodhKey;if(!key){alert("Please enter your EODHD API key in Settings first.");S.tab="settings";render();return}
   var callCount=0;var errors=[];
   try{
   S.loading=true;S.loadingMsg="Connecting to EODHD via API proxy...";try{render()}catch(re){console.error("render error on load start:",re)}
-    // Build US bulk ticker list (most international stocks have US ADRs)
-    var allSymbols=[];var symbolToStock={};
-    ALL_STOCKS.forEach(function(st){var sym=eodhdSymbol(st.t);allSymbols.push(sym);symbolToStock[sym]=st});
-    var etfSymbols=ETFS.map(function(e){return e.t});
-    var allToFetch=allSymbols.concat(etfSymbols);
+    // Group stocks by their EODHD exchange — US ADRs + local exchange stocks fetched separately
+    var byExchange={};
+    ALL_STOCKS.forEach(function(st){
+      var exch=eodhdExchange(st.t);var sym=eodhdSymbol(st.t);
+      if(!byExchange[exch])byExchange[exch]=[];byExchange[exch].push(sym);
+    });
+    // ETFs always on US
+    ETFS.forEach(function(e){if(!byExchange['US'])byExchange['US']=[];byExchange['US'].push(e.t)});
+    var totalTickers=ALL_STOCKS.length+ETFS.length;
+    var exchangeList=Object.keys(byExchange);
 
-    // Route through API proxy to avoid CORS — bulk API with filter=extended
-    // Use larger batches (100) for efficiency with 3,000+ stock universe
-    var batchSize=allToFetch.length>500?100:50;
     var quoteMap={};
     // Enhancement: use cached bulk data if less than 15 minutes old
     var cacheAge=Date.now()-_eodhdBulkCache.ts;
@@ -456,38 +466,49 @@ async function fetchEODHDLive(){
       quoteMap=_eodhdBulkCache.quoteMap;
       setMsg("Using cached prices ("+Math.round(cacheAge/60000)+"m old) — click Refresh to refetch");
     }else{
-    setMsg("Fetching "+allToFetch.length+" tickers via EODHD bulk...");
-    var batches=batchArray(allToFetch,batchSize);
-    for(var b=0;b<batches.length;b++){
-      var batchSyms=batches[b].join(",");
-      var pct=Math.round((b+1)/batches.length*100);
-      setMsg("Pricing "+pct+"% · batch "+(b+1)+"/"+batches.length+" ("+allToFetch.length+" stocks)");
-      try{
-        var r=await fetch(API_BASE+"/eodhd/bulk?key="+encodeURIComponent(key)+"&exchange=US&symbols="+encodeURIComponent(batchSyms));
-        callCount+=1; // Bug fix: 1 bulk API call per batch, not 100+batch.length
-        if(!r.ok){var errData=await r.json().catch(function(){return{}});errors.push("Bulk API: "+(errData.error||"HTTP "+r.status));continue}
-        var data=await r.json();
-        if(data&&Array.isArray(data)){
-          data.forEach(function(d){
-            quoteMap[d.code]={
-              price:d.adjusted_close||d.close,
-              open:d.open,high:d.high,low:d.low,
-              change:d.change_p,
-              mc:d.MarketCapitalization?+(d.MarketCapitalization/1e9).toFixed(0):null,
-              beta:d.Beta,
-              ema50:d.ema_50d,ema200:d.ema_200d,
-              hi52:d.hi_250d,lo52:d.lo_250d,
-              vol:d.volume,avgVol50:d.avgvol_50d,avgVol200:d.avgvol_200d,
-              name:d.name
-            };
-          });
-        }
-      }catch(e){errors.push("Bulk batch "+(b+1)+" error: "+e.message)}
-      if(b<batches.length-1)await new Promise(function(r){setTimeout(r,allToFetch.length>500?150:300)});
+    setMsg("Fetching "+totalTickers+" tickers across "+exchangeList.length+" exchanges...");
+    var batchSize=100;
+    var exchTotal=exchangeList.length;
+    for(var ei=0;ei<exchTotal;ei++){
+      var exch=exchangeList[ei];var exchSyms=byExchange[exch];
+      var batches=batchArray(exchSyms,batchSize);
+      for(var b=0;b<batches.length;b++){
+        var batchSyms=batches[b].join(",");
+        var pct=Math.round((ei/exchTotal+((b+1)/batches.length)/exchTotal)*100);
+        setMsg(exch+" "+pct+"% · "+exchSyms.length+" stocks · exchange "+(ei+1)+"/"+exchTotal);
+        try{
+          var r=await fetch(API_BASE+"/eodhd/bulk?key="+encodeURIComponent(key)+"&exchange="+encodeURIComponent(exch)+"&symbols="+encodeURIComponent(batchSyms));
+          callCount+=1;
+          if(!r.ok){var errData=await r.json().catch(function(){return{}});errors.push(exch+" bulk: "+(errData.error||"HTTP "+r.status));continue}
+          var data=await r.json();
+          if(data&&Array.isArray(data)){
+            data.forEach(function(d){
+              var entry={
+                price:d.adjusted_close||d.close,
+                open:d.open,high:d.high,low:d.low,
+                change:d.change_p,
+                mc:d.MarketCapitalization?+(d.MarketCapitalization/1e9).toFixed(0):null,
+                beta:d.Beta,
+                ema50:d.ema_50d,ema200:d.ema_200d,
+                hi52:d.hi_250d,lo52:d.lo_250d,
+                vol:d.volume,avgVol50:d.avgvol_50d,avgVol200:d.avgvol_200d,
+                name:d.name
+              };
+              quoteMap[d.code]=entry; // full code e.g. "NPN.JSE" or "AAPL"
+              var bare=d.code.split('.')[0];if(bare!==d.code)quoteMap[bare]=entry; // also store "NPN"
+            });
+          }
+        }catch(e){errors.push(exch+" batch "+(b+1)+" error: "+e.message)}
+        if(b<batches.length-1)await new Promise(function(r){setTimeout(r,150)});
+      }
+      if(ei<exchTotal-1)await new Promise(function(r){setTimeout(r,200)});
     }
     // Save bulk results to 15-min cache
     _eodhdBulkCache={ts:Date.now(),quoteMap:quoteMap};
     } // end cache else block
+
+    // Flat list of all symbols (for dividend fetch filtering)
+    var allSymbols=[];exchangeList.forEach(function(ex){allSymbols=allSymbols.concat(byExchange[ex])});
 
     // Fetch dividends for top 20 stocks only — saves API calls for large universes
     setMsg("Fetching dividend data for top dividend payers...");
