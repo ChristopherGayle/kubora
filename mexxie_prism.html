@@ -435,9 +435,9 @@ function eodhdSymbol(t){var mapped=eodhdTicker(t);return mapped.split(".")[0]}
 
 async function fetchEODHDLive(){
   var key=S.eodhKey;if(!key){alert("Please enter your EODHD API key in Settings first.");S.tab="settings";render();return}
-  S.loading=true;S.loadingMsg="Connecting to EODHD via API proxy...";render();
   var callCount=0;var errors=[];
   try{
+  S.loading=true;S.loadingMsg="Connecting to EODHD via API proxy...";try{render()}catch(re){console.error("render error on load start:",re)}
     // Build US bulk ticker list (most international stocks have US ADRs)
     var allSymbols=[];var symbolToStock={};
     ALL_STOCKS.forEach(function(st){var sym=eodhdSymbol(st.t);allSymbols.push(sym);symbolToStock[sym]=st});
@@ -452,14 +452,14 @@ async function fetchEODHDLive(){
     var cacheAge=Date.now()-_eodhdBulkCache.ts;
     if(_eodhdBulkCache.quoteMap&&cacheAge<EODHD_BULK_TTL){
       quoteMap=_eodhdBulkCache.quoteMap;
-      S.loadingMsg="Using cached prices ("+Math.round(cacheAge/60000)+"m old) — click Refresh to refetch";render();
+      setMsg("Using cached prices ("+Math.round(cacheAge/60000)+"m old) — click Refresh to refetch");
     }else{
-    S.loadingMsg="Fetching "+allToFetch.length+" tickers via EODHD bulk...";render();
+    setMsg("Fetching "+allToFetch.length+" tickers via EODHD bulk...");
     var batches=batchArray(allToFetch,batchSize);
     for(var b=0;b<batches.length;b++){
       var batchSyms=batches[b].join(",");
       var pct=Math.round((b+1)/batches.length*100);
-      S.loadingMsg="Pricing "+pct+"% · batch "+(b+1)+"/"+batches.length+" ("+allToFetch.length+" stocks)";render();
+      setMsg("Pricing "+pct+"% · batch "+(b+1)+"/"+batches.length+" ("+allToFetch.length+" stocks)");
       try{
         var r=await fetch(API_BASE+"/eodhd/bulk?key="+encodeURIComponent(key)+"&exchange=US&symbols="+encodeURIComponent(batchSyms));
         callCount+=1; // Bug fix: 1 bulk API call per batch, not 100+batch.length
@@ -488,7 +488,7 @@ async function fetchEODHDLive(){
     } // end cache else block
 
     // Fetch dividends for top 20 stocks only — saves API calls for large universes
-    S.loadingMsg="Fetching dividend data for top dividend payers...";render();
+    setMsg("Fetching dividend data for top dividend payers...");
     var divMap={};var oneYearAgo=new Date();oneYearAgo.setFullYear(oneYearAgo.getFullYear()-1);
     var fromDate=oneYearAgo.toISOString().slice(0,10);
     // Get top 20 highest-price US stocks (likely dividend payers) + any prior picks
@@ -561,7 +561,8 @@ async function fetchEODHDLive(){
     S.lastRefresh=new Date();S.refreshCount=(S.refreshCount||0)+1;
     S.lastSource="EODHD EOD";S.lastCalls=callCount;S.lastErrors=errors;
   }catch(e){errors.push("Fatal: "+e.message);S.lastErrors=errors}
-  S.loading=false;S.loadingMsg="";render();persistScores();
+  S.loading=false;S.loadingMsg="";try{render()}catch(re){console.error("render error on load end:",re);try{document.getElementById("app").innerHTML="<div style='padding:40px;color:#ef4444'>Render error — please reload the page.<br><small>"+re.message+"</small></div>"}catch(x){}}
+  persistScores();
 }
 
 async function fetchFMPLive(){
@@ -616,6 +617,8 @@ async function fetchFinnhubLive(){
   }catch(e){errors.push("Fatal: "+e.message);S.lastErrors=errors}
   S.loading=false;S.loadingMsg="";render();persistScores();
 }
+// In-place loading message update — avoids full DOM re-render on every progress tick
+function setMsg(msg){S.loadingMsg=msg;var el=document.getElementById("loading-msg");if(el)el.textContent=msg;else try{render()}catch(e){}}
 function fetchLive(){if(S.provider==="eodhd")return fetchEODHDLive();if(S.provider==="fmp")return fetchFMPLive();return fetchFinnhubLive()}
 // ===================== MARKET REGIME PRESETS =====================
 var REGIME_PRESETS={
@@ -694,9 +697,10 @@ function getRanked(){
   // Market cap tier filter — only applies to stocks with known mc (mc>0)
   var CAP_RANGES={mega:{min:200,max:Infinity},large:{min:10,max:200},mid:{min:2,max:10},small:{min:0.25,max:2},micro:{min:0.15,max:0.3}};
   if(S.capSize&&S.capSize!=="all"){var cr=CAP_RANGES[S.capSize];if(cr)pool=pool.filter(function(x){return x.mc>0&&x.mc>=cr.min&&x.mc<cr.max});}
+  // Build O(1) ticker→index map once instead of O(n) findIndex per stock (avoids O(n²) freeze with 3000+ stocks)
+  var tickerIdx={};ALL_STOCKS.forEach(function(s,i){tickerIdx[s.t]=i});
   var arr=pool.map(function(st,i){
-    // Bug fix: use ticker-based lookup — indexOf() fails if objects were cloned
-    var idx=ALL_STOCKS.findIndex(function(s){return s.t===st.t});var sc=genSc(idx);
+    var idx=tickerIdx[st.t];if(idx===undefined)idx=-1;var sc=genSc(idx);
     if(st.live){
       if(st.live.pb!=null)sc.t.pb=+Math.abs(st.live.pb).toFixed(2);
       if(st.live.divYield!=null)sc.t.dy=+(st.live.divYield*100).toFixed(1);
@@ -854,7 +858,7 @@ function renderRefreshBar(){
   var t=T();var bar=h("div",{style:{background:t.surface,borderBottom:"1px solid "+t.border,padding:"8px 20px"}});
   var inner=h("div",{style:{maxWidth:"1200px",margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:"8px"}});
   var left=h("div",{style:{display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap"}});
-  if(S.loading){left.appendChild(h("div",{style:{width:"8px",height:"8px",borderRadius:"4px",background:t.accent,animation:"pulse 1s infinite"}}));left.appendChild(h("span",{style:{fontSize:"11px",color:t.accent,fontWeight:"600"}},S.loadingMsg||"Loading..."))}
+  if(S.loading){left.appendChild(h("div",{style:{width:"8px",height:"8px",borderRadius:"4px",background:t.accent,animation:"pulse 1s infinite"}}));left.appendChild(h("span",{id:"loading-msg",style:{fontSize:"11px",color:t.accent,fontWeight:"600"}},S.loadingMsg||"Loading..."))}
   else{var isLive=S.lastSource.indexOf("Live")>=0;var dotColor=isLive?t.buy:"#f59e0b";left.appendChild(h("div",{style:{width:"8px",height:"8px",borderRadius:"4px",background:dotColor}}));var stxt=h("div",{style:{fontSize:"11px",color:t.ts}});stxt.appendChild(h("span",{style:{fontWeight:"600",color:t.text}},fmtTime(S.lastRefresh)));stxt.appendChild(h("span",null," \u00B7 "+fmtDate(S.lastRefresh)));left.appendChild(stxt)}
   inner.appendChild(left);
   var right=h("div",{style:{display:"flex",alignItems:"center",gap:"6px"}});
@@ -1202,8 +1206,7 @@ function priorRec(pk){
   var stObj=ALL_STOCKS.find(function(s){return s.t===pk.t});
   var score=0;
   if(stObj){
-    // Bug fix: findIndex by ticker — indexOf fails if object references differ
-    var idx=ALL_STOCKS.findIndex(function(s){return s.t===stObj.t});
+    var idx=ALL_STOCKS.indexOf(stObj);if(idx<0)idx=ALL_STOCKS.findIndex(function(s){return s.t===stObj.t});
     var sc=genSc(idx);
     if(stObj.live){
       if(stObj.live.pb!=null)sc.t.pb=+Math.abs(stObj.live.pb).toFixed(2);
