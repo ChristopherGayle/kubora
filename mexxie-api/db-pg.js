@@ -5,7 +5,8 @@ const { Pool } = require('pg');
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+  // Railway PostgreSQL always requires SSL; RAILWAY_ENVIRONMENT is set by Railway automatically
+  ssl: process.env.RAILWAY_ENVIRONMENT ? { rejectUnauthorized: false } : false
 });
 
 async function query(sql, params = []) {
