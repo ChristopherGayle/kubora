@@ -1758,44 +1758,75 @@ function renderSettings(){
 
   // ── Finviz Fundamental Data ──────────────────────────────────────────
   var fvCount=Object.keys(S.finvizData).length;
-  var fvSec=h("div",{style:{marginBottom:"18px",padding:"14px",background:t.surface,border:"1px solid "+t.border,borderRadius:"10px"}});
-  fvSec.appendChild(h("div",{style:{fontSize:"12px",fontWeight:"700",color:t.text,marginBottom:"4px"}},"📊 Finviz Fundamental Data (Free)"));
-  var fvDesc=fvCount>0&&S.finvizTs
-    ? "✅ "+fvCount.toLocaleString()+" stocks loaded · "+Math.round((Date.now()-S.finvizTs)/86400000)+"d ago · Real PE, ROE, Piotroski active"
-    : "Paste Finviz CSV to replace simulated fundamentals with real PE, ROE, P/B, Piotroski scores for US stocks.";
-  fvSec.appendChild(h("div",{style:{fontSize:"11px",color:fvCount>0?t.buy:t.ts,lineHeight:"1.6",marginBottom:"8px"}},fvDesc));
-  if(fvCount===0){
-    var fvSteps=h("ol",{style:{margin:"0 0 10px 14px",padding:"0",fontSize:"11px",color:t.ts,lineHeight:"1.8"}});
-    ["Go to finviz.com/screener","Set Universe to All (top-left dropdown)","Click Export at bottom-right of page","Copy all text from the downloaded CSV","Paste it below and click Import"].forEach(function(s){fvSteps.appendChild(h("li",null,s))});
-    fvSec.appendChild(fvSteps);
-  }
-  var fvTa=h("textarea",{style:{width:"100%",height:"56px",resize:"vertical",fontFamily:"monospace",fontSize:"10px",padding:"6px",borderRadius:"6px",border:"1px solid "+t.border,background:t.bg,color:t.text,boxSizing:"border-box",marginBottom:"6px"}});
-  fvTa.placeholder="Paste Finviz CSV here (No.,Ticker,Company,Sector,...)";
-  fvSec.appendChild(fvTa);
-  var fvBtnRow=h("div",{style:{display:"flex",gap:"8px",alignItems:"center"}});
-  fvBtnRow.appendChild(h("button",{style:{padding:"6px 16px",borderRadius:"8px",border:"none",background:t.accent,color:"#fff",fontSize:"11px",fontWeight:"700",fontFamily:"inherit",cursor:"pointer"},onClick:function(){
-    var txt=fvTa.value.trim();
-    if(!txt){alert("Paste your Finviz CSV first.");return;}
-    var res=parseFinvizCSV(txt);
-    if(res.count===0){alert("Could not parse. Paste the full CSV including the header row (No.,Ticker,Company,...).");return;}
-    S.finvizData=res.data;S.finvizTs=Date.now();
-    try{
-      var compact={};Object.keys(res.data).forEach(function(tk){var d=res.data[tk],c={};Object.keys(d).forEach(function(k){if(d[k]!=null)c[k]=d[k]});if(Object.keys(c).length)compact[tk]=c;});
-      localStorage.setItem("mexxie_finviz_data",JSON.stringify(compact));
-      localStorage.setItem("mexxie_finviz_ts",String(S.finvizTs));
-    }catch(e){console.warn("localStorage full:",e.message);}
-    fvTa.value="";
-    alert("✅ "+res.count.toLocaleString()+" stocks imported. Click ↻ Simulate to apply real fundamentals.");
-    render();
-  }},"Import CSV"));
+  var fvSec=h("div",{style:{marginBottom:"18px",padding:"14px",background:t.surface,border:"1px solid "+(fvCount>0?t.buy+"44":t.border),borderRadius:"10px"}});
+  fvSec.appendChild(h("div",{style:{fontSize:"12px",fontWeight:"700",color:t.text,marginBottom:"2px"}},"📊 Finviz Fundamental Data · Free · Refresh Weekly"));
+  // Status bar
+  var fvStatus=fvCount>0&&S.finvizTs
+    ? "✅ "+fvCount.toLocaleString()+" stocks · real PE, ROE, Piotroski active · imported "+Math.round((Date.now()-S.finvizTs)/86400000)+"d ago"+(Math.round((Date.now()-S.finvizTs)/86400000)>=7?" · ⚠️ Refresh recommended":"")
+    : "⚡ Replaces all simulated fundamentals with real data for US stocks. Two clicks — no account needed.";
+  fvSec.appendChild(h("div",{style:{fontSize:"11px",color:fvCount>0?t.buy:t.ts,marginBottom:"12px",lineHeight:"1.5"}},fvStatus));
+
+  // Step 1 + Step 2 in a row
+  var fvStepRow=h("div",{style:{display:"flex",gap:"10px",flexWrap:"wrap",marginBottom:"12px"}});
+
+  // Step 1 — Open Finviz
+  var step1=h("div",{style:{flex:"1",minWidth:"160px",padding:"10px 12px",background:t.bg,border:"1px solid "+t.border,borderRadius:"8px"}});
+  step1.appendChild(h("div",{style:{fontSize:"10px",fontWeight:"700",color:t.tm,letterSpacing:".5px",marginBottom:"6px"}},"STEP 1"));
+  step1.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,marginBottom:"8px",lineHeight:"1.5"}},"Open Finviz Screener, then click Export at the bottom-right of the page."));
+  step1.appendChild(h("button",{style:{
+    width:"100%",padding:"8px",borderRadius:"7px",border:"none",
+    background:"#1a56db",color:"#fff",fontSize:"11px",fontWeight:"700",fontFamily:"inherit",cursor:"pointer"
+  },onClick:function(){
+    window.open("https://finviz.com/screener.ashx?v=111","_blank");
+  }},"🔗 Open Finviz Screener"));
+  fvStepRow.appendChild(step1);
+
+  // Step 2 — Upload CSV
+  var step2=h("div",{style:{flex:"1",minWidth:"160px",padding:"10px 12px",background:t.bg,border:"1px solid "+t.border,borderRadius:"8px"}});
+  step2.appendChild(h("div",{style:{fontSize:"10px",fontWeight:"700",color:t.tm,letterSpacing:".5px",marginBottom:"6px"}},"STEP 2"));
+  step2.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,marginBottom:"8px",lineHeight:"1.5"}},"Upload the downloaded CSV. Parses and imports automatically — no copy-paste needed."));
+  // Hidden file input
+  var fvFileInput=h("input",{type:"file",accept:".csv",style:{display:"none"}});
+  fvFileInput.onchange=function(e){
+    var file=e.target.files[0];if(!file)return;
+    var statusEl=document.getElementById("fv-upload-status");
+    if(statusEl)statusEl.textContent="Reading file...";
+    var reader=new FileReader();
+    reader.onload=function(ev){
+      var res=parseFinvizCSV(ev.target.result);
+      if(res.count===0){alert("Could not parse CSV. Make sure you downloaded the full Finviz export.");fvFileInput.value="";return;}
+      S.finvizData=res.data;S.finvizTs=Date.now();
+      try{
+        var compact={};Object.keys(res.data).forEach(function(tk){var d=res.data[tk],c={};Object.keys(d).forEach(function(k){if(d[k]!=null)c[k]=d[k]});if(Object.keys(c).length)compact[tk]=c;});
+        localStorage.setItem("mexxie_finviz_data",JSON.stringify(compact));
+        localStorage.setItem("mexxie_finviz_ts",String(S.finvizTs));
+      }catch(err){console.warn("localStorage full:",err.message);}
+      fvFileInput.value="";
+      render();
+      // Auto-simulate to apply
+      refreshData();
+    };
+    reader.readAsText(file);
+  };
+  step2.appendChild(fvFileInput);
+  step2.appendChild(h("button",{style:{
+    width:"100%",padding:"8px",borderRadius:"7px",border:"none",
+    background:t.accent,color:"#fff",fontSize:"11px",fontWeight:"700",fontFamily:"inherit",cursor:"pointer"
+  },onClick:function(){fvFileInput.click();}},"📂 Upload CSV File"));
+  step2.appendChild(h("div",{id:"fv-upload-status",style:{fontSize:"10px",color:t.ts,marginTop:"4px",minHeight:"14px"}},fvCount>0?"Last file: "+fvCount.toLocaleString()+" stocks":""));
+  fvStepRow.appendChild(step2);
+  fvSec.appendChild(fvStepRow);
+
+  // Clear button (only shown when data loaded)
   if(fvCount>0){
-    fvBtnRow.appendChild(h("button",{style:{padding:"6px 12px",borderRadius:"8px",border:"1px solid "+t.border,background:t.surface,color:t.tm,fontSize:"11px",fontWeight:"600",fontFamily:"inherit",cursor:"pointer"},onClick:function(){
+    var fvClearRow=h("div",{style:{display:"flex",justifyContent:"flex-end"}});
+    fvClearRow.appendChild(h("button",{style:{padding:"4px 12px",borderRadius:"6px",border:"1px solid "+t.border,background:"transparent",color:t.tm,fontSize:"10px",fontWeight:"600",fontFamily:"inherit",cursor:"pointer"},onClick:function(){
       S.finvizData={};S.finvizTs=null;
       try{localStorage.removeItem("mexxie_finviz_data");localStorage.removeItem("mexxie_finviz_ts");}catch(e){}
       render();
-    }},"Clear"));
+    }},"✕ Clear data"));
+    fvSec.appendChild(fvClearRow);
   }
-  fvSec.appendChild(fvBtnRow);
   dc.appendChild(fvSec);
 
   // Clear cache
