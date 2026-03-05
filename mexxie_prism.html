@@ -133,7 +133,7 @@ async function persistScores(){
       var cats=0;
       if(sc.g.ey>10||sc.t.pb<2)cats++;
       if(sc.m.moat>=3&&+sc.m.qual>70)cats++;
-      if(+sc.s.mom>55&&+sc.s.rsi>=35&&+sc.s.rsi<=70)cats++;
+      if(+sc.s.mom>55&&+sc.s.rsi>=40&&+sc.s.rsi<=65)cats++;// tightened to match comp() ideal range
       if(sc.p.fscore>=6&&sc.a.z>2)cats++;
       if(+sc.t.shY>5)cats++;
       return{ticker:st.t,sc:sc,comp:+comp(sc,nw2),consensus:cats};
@@ -367,11 +367,16 @@ function comp(sc,w){
   var g=(sc.g.ey/25*35+sc.g.roic/48*35+(100-sc.g.rk)/100*20+Math.max(0,(25-sc.g.evEbit)/25)*10)/100;
   var tv=((4-Math.min(sc.t.pb,4))/4*20+(sc.t.ins?20:0)+sc.t.dy/5.5*20+sc.t.fcf/14*20+sc.t.shY/15*20)/100;
   var m=(sc.m.moat/5*35+sc.m.qual/100*30+sc.m.mgmt/100*20+sc.m.revQ/8*15)/100;
+  // RSI scoring: ideal 40-65 (momentum but not overbought)
+  // Oversold (<40) gets partial credit — could be a value opportunity, but risky
+  // Deeply oversold (<25) penalised more — often broken fundamentals, not just a dip
   var rsiScore=0;
-  if(sc.s.rsi>=40&&sc.s.rsi<=65)rsiScore=1.0;
-  else if(sc.s.rsi>65&&sc.s.rsi<=75)rsiScore=0.5;
-  else if(sc.s.rsi<40)rsiScore=0.7;
-  else rsiScore=0.1;
+  var rsi=+sc.s.rsi;
+  if(rsi>=40&&rsi<=65)rsiScore=1.0;
+  else if(rsi>65&&rsi<=75)rsiScore=0.5;  // approaching overbought
+  else if(rsi>75)rsiScore=0.1;            // overbought — avoid chasing
+  else if(rsi>=30&&rsi<40)rsiScore=0.65; // mildly oversold — slight discount
+  else rsiScore=0.3;                      // deeply oversold (<30) — distress signal
   var s2=(sc.s.mom/100*30+(sc.s.mr==="Long"?30:10)/30*20+sc.s.sa/100*20+rsiScore*30)/100;
   var p=sc.p?sc.p.fscore/9:0.5;
   var az=sc.a?Math.min(1,Math.max(0,(sc.a.z-1.0)/4.0)):0.5;
@@ -383,7 +388,15 @@ function comp(sc,w){
   var dk_mom=sc.s.mom/100;
   var dk_qual=sc.m.qual/100*0.55+(sc.p?sc.p.fscore/9:0.5)*0.45;
   var dk_entry=(sc.s.rsi>=35&&sc.s.rsi<=70)?1.0:(sc.s.rsi>70)?Math.max(0.15,1-(sc.s.rsi-70)*0.04):0.55;
-  var dk_beta=(function(b){return(b>=1.0&&b<=1.8)?1.0:(b>1.8)?Math.max(0.2,1-(b-1.8)*0.4):(b<0.5)?0.3:b/1.0})(sc.s.beta||1.0);
+  // Druckenmiller: ideal beta 1.0-1.8 for macro-aligned growth captures
+  // Clamp input to 0.1-4.0 to prevent NaN/Infinity from bad data
+  var dk_beta=(function(b){
+    b=Math.max(0.1,Math.min(4.0,b));// clamp to valid range
+    if(b>=1.0&&b<=1.8)return 1.0;
+    if(b>1.8)return Math.max(0.1,1-(b-1.8)*0.4);// aggressive decay for high-beta
+    if(b<0.5)return 0.4;// very low beta — defensive, not Druckenmiller-style
+    return 0.4+b*0.6;  // 0.5-0.99: partial credit, scales toward 1.0
+  })(sc.s.beta||1.0);
   var druckScore=dk_grow*0.30+dk_mom*0.25+dk_qual*0.25+dk_entry*0.15+dk_beta*0.05;
   var wt=w.greenblatt||0,wv=w.tweedy||0,wm=w.munger||0,ws=w.simons||0;
   var wp=w.piotroski||0,wa=w.altman||0,wr=w.rsi||0,we=w.evEbit||0;
@@ -495,8 +508,14 @@ function applyFinvizData(sc,ticker){
   if(fd.pe!=null){if(fd.pe>0)sc.g.ey=+Math.min(25,100/fd.pe).toFixed(1);else sc.g.ey=0;}
   // Finviz shows "-" (null) for PE when company is loss-making — detect via ROA or net margin
   if(fd.pe==null&&((fd.roa!=null&&fd.roa<0)||(fd.nm!=null&&fd.nm<0)))sc.g.ey=0;
-  // ROE as ROIC proxy
-  if(fd.roe!=null)sc.g.roic=+Math.min(48,Math.max(0,fd.roe)).toFixed(1);
+  // ROE adjusted for financial leverage → better ROIC proxy
+  // High ROE from excessive debt masks poor operations (DuPont decomposition)
+  // Adjustment: effective return ≈ ROE / (1 + clamped_DE) — capped D/E at 3 to prevent over-penalising stable leveraged businesses
+  if(fd.roe!=null){
+    var adjRoe=fd.roe;
+    if(fd.de!=null&&fd.de>0)adjRoe=fd.roe/(1+Math.min(fd.de,3));
+    sc.g.roic=+Math.min(48,Math.max(0,adjRoe)).toFixed(1);
+  }
   // Price/Book
   if(fd.pb!=null&&fd.pb>0)sc.t.pb=+Math.min(4,fd.pb).toFixed(2);
   // Dividend yield
@@ -508,10 +527,13 @@ function applyFinvizData(sc,ticker){
   // Quality score from net profit margin: -50%=20, 0%=50, 20%+=100
   if(fd.nm!=null)sc.m.qual=+Math.min(100,Math.max(20,50+fd.nm*2.5)).toFixed(0);
   // Revenue quality from average of EPS growth + sales growth
+  // Scale: 0%=3 (below neutral), 20%=4, 80%=8 — negative growth penalised below 3
+  // The previous floor of 4 was too generous for flat/declining businesses
   if(fd.eg!=null||fd.sg!=null){
     var both=fd.eg!=null&&fd.sg!=null;
     var avgG=((fd.eg||0)+(fd.sg||0))/(both?2:1);
-    sc.m.revQ=+Math.min(8,Math.max(0,4+avgG*0.05)).toFixed(1);
+    // Neutral at 20% growth (typical healthy mid-cap); ±10% per 10pp of growth deviation
+    sc.m.revQ=+Math.min(8,Math.max(0,3+avgG*0.06)).toFixed(1);
   }
   // Piotroski: override 6 of 9 components with real data
   if(fd.roa!=null)sc.p.pf.roa=fd.roa>0;
@@ -632,7 +654,8 @@ async function fetchEODHDLive(){
         // Compute derived metrics
         var mom=0;if(q.ema200&&pr>0){mom=+((pr/q.ema200-1)*100).toFixed(1)}
         var range52=0;if(q.hi52&&q.lo52&&q.hi52>q.lo52){range52=+((pr-q.lo52)/(q.hi52-q.lo52)*100).toFixed(0)}
-        var divYield=null;if(divMap[sym]&&q.price>0){divYield=+(divMap[sym]/q.price).toFixed(4)}
+        // Cap at 25% — prevents penny-stock arithmetic from creating nonsensical yields
+        var divYield=null;if(divMap[sym]&&q.price>0){divYield=+Math.min(0.25,divMap[sym]/q.price).toFixed(4)}
         st.live={
           change:q.change,
           pb:null,// not available on $19.99 plan
@@ -690,7 +713,15 @@ async function fetchFMPLive(){
     if(tickersNeedingRatios.length>0){var ratioBatches=batchArray(tickersNeedingRatios,3);for(var i=0;i<ratioBatches.length;i++){if(callCount>=245){errors.push("Near 250 daily limit");break}var rBatch=ratioBatches[i];S.loadingMsg="Fetching fundamentals "+(i*3+1)+"-"+Math.min((i+1)*3,tickersNeedingRatios.length)+"/"+tickersNeedingRatios.length+"...";render();try{var rResults=await Promise.all(rBatch.map(function(tk){callCount++;return fetch(FMP_BASE+"/ratios-ttm?symbol="+encodeURIComponent(tk)+"&apikey="+key).then(function(r){return r.ok?r.json():null}).catch(function(){return null})}));for(var j=0;j<rResults.length;j++){var rd=rResults[j];if(rd&&Array.isArray(rd)&&rd[0]){var d=rd[0];ratiosCache[rBatch[j]]={pb:d.priceToBookRatioTTM,pe:d.priceToEarningsRatioTTM,divYield:d.dividendYieldTTM,fcfYield:d.freeCashFlowPerShareTTM,debtEquity:d.debtToEquityRatioTTM,roe:(d.netProfitMarginTTM&&d.assetTurnoverTTM&&d.financialLeverageRatioTTM)?d.netProfitMarginTTM*d.assetTurnoverTTM*d.financialLeverageRatioTTM:null}}}}catch(e){}if(i<ratioBatches.length-1)await new Promise(function(r){setTimeout(r,150)})}}
     try{localStorage.setItem("mexxie_ratios_cache",JSON.stringify({ts:Date.now(),data:ratiosCache}))}catch(e){}
     Object.keys(ratiosCache).forEach(function(tk){if(!quoteMap[tk])quoteMap[tk]={};var cr=ratiosCache[tk];if(cr){quoteMap[tk].pb=cr.pb;quoteMap[tk].pe=cr.pe;quoteMap[tk].divYield=cr.divYield;quoteMap[tk].fcfYield=cr.fcfYield;quoteMap[tk].debtEquity=cr.debtEquity;quoteMap[tk].roe=cr.roe}});
-    ALL_STOCKS.forEach(function(st){var sym=fmpTicker(st.t);var q=quoteMap[sym];if(q){if(q.price)st.p=+q.price.toFixed(2);if(q.mc)st.mc=+(q.mc/1e9).toFixed(0);if(q.name&&q.name.length>2)st.n=q.name;st.live={pb:q.pb,roe:q.roe,divYield:q.divYield,fcfYield:q.fcfYield,pe:q.pe,change:q.change,debtEquity:q.debtEquity}}});
+    ALL_STOCKS.forEach(function(st){var sym=fmpTicker(st.t);var q=quoteMap[sym];if(q){if(q.price)st.p=+q.price.toFixed(2);if(q.mc)st.mc=+(q.mc/1e9).toFixed(0);if(q.name&&q.name.length>2)st.n=q.name;
+      // Sanitise: store null for negative PE (handled as loss-maker in getRanked)
+      // Cap divYield at 25% to prevent penny-stock arithmetic from inflating scores
+      var cleanPe=(q.pe!=null&&q.pe>0)?q.pe:null;
+      var cleanDy=(q.divYield!=null)?Math.min(0.25,q.divYield):null;
+      st.live={pb:q.pb,roe:q.roe,divYield:cleanDy,fcfYield:q.fcfYield,pe:cleanPe,change:q.change,debtEquity:q.debtEquity};
+      // Explicit loss-maker: FMP returned negative PE — mark ey=0 for getRanked guard
+      if(q.pe!=null&&q.pe<=0)st.live.lossMarker=true;
+    }});
     ETFS.forEach(function(etf){var q=quoteMap[etf.t];if(q){if(q.change!=null)etf.mom=+q.change.toFixed(1);if(q.price)etf.lastPrice=q.price}});
     S.prior.forEach(function(pk){var sym=fmpTicker(pk.t);var q=quoteMap[sym];if(q&&q.price)pk.curr=+q.price.toFixed(2)});
     S.dataSeed=Math.floor(Math.random()*90000)+10000;S.lastRefresh=new Date();S.refreshCount=(S.refreshCount||0)+1;S.lastSource="FMP Live";S.lastCalls=callCount;S.lastErrors=errors;
@@ -777,8 +808,8 @@ var S={
   weights:{greenblatt:18,tweedy:9,munger:16,simons:13,piotroski:10,altman:5,rsi:2,evEbit:4,shYield:7,revGrowth:6,shortInt:1,druckenmiller:9},
   numPicks:8,sector:"All",dataSeed:42,lastRefresh:new Date(),refreshCount:0,
   provider:(function(){try{return localStorage.getItem("mexxie_provider")||"finnhub"}catch(e){return"finnhub"}})(),
-  apiKey:(function(){try{return localStorage.getItem("mexxie_api_key")||"gi9xNO7CWDJhG2xupgJaO0wuarOBRUei"}catch(e){return"gi9xNO7CWDJhG2xupgJaO0wuarOBRUei"}})(),
-  finnhubKey:(function(){try{return localStorage.getItem("mexxie_finnhub_key")||"d6ebj19r01qloir5vun0d6ebj19r01qloir5vung"}catch(e){return"d6ebj19r01qloir5vun0d6ebj19r01qloir5vung"}})(),
+  apiKey:(function(){try{return localStorage.getItem("mexxie_api_key")||""}catch(e){return""}})(),
+  finnhubKey:(function(){try{return localStorage.getItem("mexxie_finnhub_key")||""}catch(e){return""}})(),
   eodhKey:(function(){try{return localStorage.getItem("mexxie_eodh_key")||""}catch(e){return""}})(),
   finvizData:(function(){try{var d=localStorage.getItem("mexxie_finviz_data");return d?JSON.parse(d):{}}catch(e){return{}}}()),
   finvizTs:(function(){try{return+localStorage.getItem("mexxie_finviz_ts")||null}catch(e){return null}}()),
@@ -819,14 +850,17 @@ function getRanked(){
       if(st.live.fcfYield!=null&&st.live.fcfYield>0)sc.t.fcf=+Math.min(14,st.live.fcfYield).toFixed(1);
       if(st.live.debtEquity!=null){sc.p.pf.dlev=st.live.debtEquity<1.5;sc.p.fscore=Object.values(sc.p.pf).filter(Boolean).length}
       // EODHD-specific: use EMA-derived momentum if available (more accurate than daily change)
-      if(st.live.mom!=null&&st.live.ema200)sc.s.mom=+Math.min(100,Math.max(0,50+st.live.mom*0.5)).toFixed(0);
+      // Use >0 check — avoids ema200=0 being falsy and incorrectly skipping the calculation
+      if(st.live.mom!=null&&st.live.ema200>0)sc.s.mom=+Math.min(100,Math.max(0,50+st.live.mom*0.5)).toFixed(0);
       // EODHD: use 52-week range position as RSI proxy when real RSI unavailable
-      if(st.live.range52!=null&&st.live.ema200)sc.s.rsi=+Math.min(85,Math.max(15,st.live.range52*0.7+15)).toFixed(0);
+      if(st.live.range52!=null&&st.live.ema200>0)sc.s.rsi=+Math.min(85,Math.max(15,st.live.range52*0.7+15)).toFixed(0);
       // Druckenmiller: real beta from EODHD (ideal 1.0-1.8 for macro-aligned growth)
       if(st.live.beta!=null){var bn=+(st.live.beta);if(!isNaN(bn))sc.s.beta=+bn.toFixed(2);}
     }
-    // Fundamental reality check: when live PE confirms loss-making (ey=0), cap simulated metrics
-    // sc.g.ey===0 only occurs when live.pe!=null && live.pe<=0 — never in pure simulation mode
+    // Propagate FMP loss-marker (negative PE) into EY=0 so the guard below fires
+    if(st.live&&st.live.lossMarker)sc.g.ey=0;
+    // Fundamental reality check: when live data confirms loss-making, cap simulated metrics
+    // ey===0 occurs from: Finviz pe<=0, Finnhub pe<=0, FMP lossMarker — never from pure simulation (simulated ey always 5-25)
     if(sc.g.ey===0){
       // Piotroski: loss-makers fail ROA, CFO, dROA, margin — override simulated random booleans
       sc.p.pf.roa=false;sc.p.pf.cfo=false;sc.p.pf.droa=false;sc.p.pf.dmargin=false;
@@ -849,7 +883,7 @@ function getRanked(){
     var cats=0;
     if(sc.g.ey>10||sc.t.pb<2)cats++;
     if(sc.m.moat>=3&&+sc.m.qual>70)cats++;
-    if(+sc.s.mom>55&&+sc.s.rsi>=35&&+sc.s.rsi<=70)cats++;
+    if(+sc.s.mom>55&&+sc.s.rsi>=40&&+sc.s.rsi<=65)cats++;// tightened to match comp() ideal range
     if(sc.p.fscore>=6&&sc.a.z>2)cats++;
     if(+sc.t.shY>5)cats++;
     var bonus=Math.max(0,(cats-2))*1.5;
@@ -990,8 +1024,12 @@ function renderRefreshBar(){
   inner.appendChild(left);
   var right=h("div",{style:{display:"flex",alignItems:"center",gap:"6px"}});
   var hasKey=S.provider==="eodhd"?S.eodhKey:S.provider==="finnhub"?S.finnhubKey:S.apiKey;
-  right.appendChild(h("button",{style:{display:"flex",alignItems:"center",gap:"5px",padding:"6px 12px",borderRadius:"8px",border:"1px solid "+t.buy+"66",background:hasKey?t.buyGlow:t.tm+"15",color:hasKey?t.buy:t.tm,fontSize:"11px",fontWeight:"600",fontFamily:"inherit",opacity:S.loading?"0.5":"1"},onClick:function(){if(!S.loading)fetchLive()}},"\u26A1 "+(hasKey?"Live Refresh":"Set API Key")));
-  right.appendChild(h("button",{style:{display:"flex",alignItems:"center",gap:"5px",padding:"6px 12px",borderRadius:"8px",border:"1px solid "+t.accent+"66",background:t.accentGlow,color:t.accent,fontSize:"11px",fontWeight:"600",fontFamily:"inherit",opacity:S.loading?"0.5":"1"},onClick:function(){if(!S.loading)refreshData()}},"\u21BB Simulate"));
+  right.appendChild(h("button",{style:{display:"flex",alignItems:"center",gap:"5px",padding:"6px 12px",borderRadius:"8px",border:"1px solid "+t.buy+"66",background:hasKey?t.buyGlow:t.tm+"15",color:hasKey?t.buy:t.tm,fontSize:"11px",fontWeight:"600",fontFamily:"inherit",opacity:S.loading?"0.5":"1"},onClick:function(){
+    // Set loading=true immediately (before async call) to prevent double-click race condition
+    if(S.loading)return;
+    S.loading=true;render();fetchLive();
+  }},"\u26A1 "+(hasKey?"Live Refresh":"Set API Key")));
+  right.appendChild(h("button",{style:{display:"flex",alignItems:"center",gap:"5px",padding:"6px 12px",borderRadius:"8px",border:"1px solid "+t.accent+"66",background:t.accentGlow,color:t.accent,fontSize:"11px",fontWeight:"600",fontFamily:"inherit",opacity:S.loading?"0.5":"1"},onClick:function(){if(!S.loading)refreshData();}},"\u21BB Simulate"));
   right.appendChild(h("span",{style:{padding:"3px 8px",borderRadius:"6px",fontSize:"9px",fontWeight:"700",background:(S.lastSource.indexOf("Live")>=0?t.buy:t.tm)+"22",color:S.lastSource.indexOf("Live")>=0?t.buy:t.tm,textTransform:"uppercase"}},S.lastSource.indexOf("Live")>=0?"LIVE":"SIMULATED"));
   inner.appendChild(right);bar.appendChild(inner);return bar;
 }
@@ -1699,23 +1737,35 @@ function renderSettings(){
     },onInput:function(e){S.finnhubKey=e.target.value.trim();try{localStorage.setItem("mexxie_finnhub_key",S.finnhubKey)}catch(x){}},onFocus:function(){this.style.borderColor=t.accent},onBlur:function(){this.style.borderColor=t.border}});
     fhRow.appendChild(fhInput);
     dc.appendChild(fhRow);
-    var testRow=h("div",{style:{display:"flex",gap:"8px",alignItems:"center",marginBottom:"14px"}});
+    var testRow=h("div",{style:{display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap",marginBottom:"14px"}});
+    var fhTestStatus=h("span",{style:{fontSize:"11px",color:S.finnhubKey?t.buy:t.tm}},S.finnhubKey?"\u2713 Key entered \u2014 required for Auto-Fetch":"No key \u2014 using simulated data · Auto-Fetch disabled"});
     var testBtn=h("button",{style:{
       padding:"8px 16px",borderRadius:"8px",border:"1px solid "+t.buy+"66",
-      background:t.buyGlow,color:t.buy,fontSize:"12px",fontWeight:"600",fontFamily:"inherit"
+      background:t.buyGlow,color:t.buy,fontSize:"12px",fontWeight:"600",fontFamily:"inherit",cursor:"pointer"
     },onClick:async function(){
-      if(!S.finnhubKey){alert("Enter a Finnhub API key first.\n\nGet free key at: finnhub.io/register");return}
+      if(!S.finnhubKey){fhTestStatus.textContent="⚠️ Enter a key first — free at finnhub.io/register";fhTestStatus.style.color="#f59e0b";return;}
+      testBtn.disabled=true;fhTestStatus.textContent="⏳ Testing...";fhTestStatus.style.color=t.tm;
       try{
-        var r=await fetch(FINNHUB_BASE+"/quote?symbol=AAPL&token="+S.finnhubKey);
+        var r=await fetch(FINNHUB_BASE+"/quote?symbol=AAPL&token="+S.finnhubKey,{signal:AbortSignal.timeout(8000)});
         var d=await r.json();
-        if(d&&d.c&&d.c>0){alert("\u2705 Finnhub connected! AAPL: $"+d.c);}
-        else if(d&&d.error){alert("API Error: "+d.error);}
-        else{alert("Unexpected response. Check your key.")}
-      }catch(e){alert("Connection failed: "+e.message)}
+        if(d&&d.c&&d.c>0){
+          fhTestStatus.textContent="✅ Connected — AAPL $"+d.c.toFixed(2);
+          fhTestStatus.style.color=t.buy;
+        }else if(d&&d.error){
+          fhTestStatus.textContent="❌ "+d.error;
+          fhTestStatus.style.color=t.sell;
+        }else{
+          fhTestStatus.textContent="⚠️ Unexpected response — check your key";
+          fhTestStatus.style.color="#f59e0b";
+        }
+      }catch(e){
+        fhTestStatus.textContent="❌ "+(e.name==="TimeoutError"?"Request timed out":"Connection failed");
+        fhTestStatus.style.color=t.sell;
+      }
+      testBtn.disabled=false;
     }},"\u26a1 Test Connection");
     testRow.appendChild(testBtn);
-    if(S.finnhubKey){testRow.appendChild(h("span",{style:{fontSize:"11px",color:t.buy}},"\u2713 Key entered"));}
-    else{testRow.appendChild(h("span",{style:{fontSize:"11px",color:t.tm}},"No key \u2014 using simulated data"));}
+    testRow.appendChild(fhTestStatus);
     dc.appendChild(testRow);
   }else{
     var keyRow=h("div",{style:{marginBottom:"14px"}});
@@ -1728,22 +1778,32 @@ function renderSettings(){
     },onInput:function(e){S.apiKey=e.target.value.trim();try{localStorage.setItem("mexxie_api_key",S.apiKey)}catch(x){}},onFocus:function(){this.style.borderColor=t.accent},onBlur:function(){this.style.borderColor=t.border}});
     keyRow.appendChild(keyInput);
     dc.appendChild(keyRow);
-    var testRow2=h("div",{style:{display:"flex",gap:"8px",alignItems:"center",marginBottom:"14px"}});
+    var testRow2=h("div",{style:{display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap",marginBottom:"14px"}});
+    var fmpTestStatus=h("span",{style:{fontSize:"11px",color:S.apiKey?t.buy:t.tm}},S.apiKey?"\u2713 Key entered":"No key \u2014 using simulated data");
     var testBtn2=h("button",{style:{
       padding:"8px 16px",borderRadius:"8px",border:"1px solid "+t.buy+"66",
-      background:t.buyGlow,color:t.buy,fontSize:"12px",fontWeight:"600",fontFamily:"inherit"
+      background:t.buyGlow,color:t.buy,fontSize:"12px",fontWeight:"600",fontFamily:"inherit",cursor:"pointer"
     },onClick:async function(){
-      if(!S.apiKey){alert("Enter an API key first");return}
+      if(!S.apiKey){fmpTestStatus.textContent="⚠️ Enter an API key first";fmpTestStatus.style.color="#f59e0b";return;}
+      testBtn2.disabled=true;fmpTestStatus.textContent="⏳ Testing...";fmpTestStatus.style.color=t.tm;
       try{
-        var r=await fetch(FMP_BASE+"/quote?symbol=AAPL&apikey="+S.apiKey);
+        var r=await fetch(FMP_BASE+"/quote?symbol=AAPL&apikey="+S.apiKey,{signal:AbortSignal.timeout(8000)});
         var d=await r.json();
-        if(d&&Array.isArray(d)&&d[0]&&d[0].price){alert("\u2705 FMP Connected! AAPL: $"+d[0].price);}
-        else{alert("Check your key or try again.")}
-      }catch(e){alert("Connection failed: "+e.message)}
+        if(d&&Array.isArray(d)&&d[0]&&d[0].price){
+          fmpTestStatus.textContent="✅ Connected — AAPL $"+d[0].price;
+          fmpTestStatus.style.color=t.buy;
+        }else{
+          fmpTestStatus.textContent="⚠️ Check your key or try again";
+          fmpTestStatus.style.color="#f59e0b";
+        }
+      }catch(e){
+        fmpTestStatus.textContent="❌ "+(e.name==="TimeoutError"?"Request timed out":"Connection failed");
+        fmpTestStatus.style.color=t.sell;
+      }
+      testBtn2.disabled=false;
     }},"\u26a1 Test Connection");
     testRow2.appendChild(testBtn2);
-    if(S.apiKey){testRow2.appendChild(h("span",{style:{fontSize:"11px",color:t.buy}},"\u2713 Key entered"));}
-    else{testRow2.appendChild(h("span",{style:{fontSize:"11px",color:t.tm}},"No key \u2014 using simulated data"));}
+    testRow2.appendChild(fmpTestStatus);
     dc.appendChild(testRow2);
   }
   // ── Stock Universe Info ───────────────────────────────────────────
@@ -1760,11 +1820,18 @@ function renderSettings(){
   var fvCount=Object.keys(S.finvizData).length;
   var fvSec=h("div",{style:{marginBottom:"18px",padding:"14px",background:t.surface,border:"1px solid "+(fvCount>0?t.buy+"44":t.border),borderRadius:"10px"}});
   fvSec.appendChild(h("div",{style:{fontSize:"12px",fontWeight:"700",color:t.text,marginBottom:"2px"}},"📊 Finviz Fundamental Data · Free · Refresh Weekly"));
-  // Status bar
-  var fvStatus=fvCount>0&&S.finvizTs
-    ? "✅ "+fvCount.toLocaleString()+" stocks · real PE, ROE, Piotroski active · imported "+Math.round((Date.now()-S.finvizTs)/86400000)+"d ago"+(Math.round((Date.now()-S.finvizTs)/86400000)>=7?" · ⚠️ Refresh recommended":"")
-    : "⚡ Replaces all simulated fundamentals with real data for US stocks. Two clicks — no account needed.";
-  fvSec.appendChild(h("div",{style:{fontSize:"11px",color:fvCount>0?t.buy:t.ts,marginBottom:"12px",lineHeight:"1.5"}},fvStatus));
+  // Status bar — colour shifts amber at 3 days, red at 7 days
+  var fvDaysAgo=S.finvizTs?Math.round((Date.now()-S.finvizTs)/86400000):null;
+  var fvStatus,fvStatusColor;
+  if(fvCount>0&&S.finvizTs){
+    var fvAgeTag=fvDaysAgo>=7?" · ⚠️ Refresh recommended":fvDaysAgo>=3?" · ⏰ Getting stale":"";
+    fvStatus="✅ "+fvCount.toLocaleString()+" stocks · real PE, ROE, Piotroski active · imported "+fvDaysAgo+"d ago"+fvAgeTag;
+    fvStatusColor=fvDaysAgo>=7?t.sell:fvDaysAgo>=3?"#f59e0b":t.buy;  // red ≥7d, amber ≥3d, green
+  }else{
+    fvStatus="⚡ Replaces all simulated fundamentals with real data for US stocks. Two clicks — no account needed.";
+    fvStatusColor=t.ts;
+  }
+  fvSec.appendChild(h("div",{style:{fontSize:"11px",color:fvStatusColor,marginBottom:"12px",lineHeight:"1.5"}},fvStatus));
 
   // ── Auto-Fetch via Yahoo Finance backend ──
   (function(){
@@ -1772,7 +1839,7 @@ function renderSettings(){
     autoDiv.appendChild(h("div",{style:{fontSize:"10px",fontWeight:"700",color:API_AVAILABLE?t.accent:t.tm,letterSpacing:".5px",marginBottom:"4px"}},"🤖 AUTO-FETCH · GLOBAL (US + Europe + Asia + Africa)"));
     autoDiv.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,marginBottom:"8px",lineHeight:"1.5"}},
       API_AVAILABLE
-        ? "Backend fetches fundamentals from Yahoo Finance automatically — no manual steps, covers all regions."
+        ? "Backend fetches fundamentals from Finnhub automatically — no manual steps, covers all regions (US · Europe · Asia · Africa)."
         : "⚠️ API not connected. Connect Railway API first to enable auto-fetch."));
     var autoStatus=h("div",{style:{fontSize:"10px",color:t.ts,minHeight:"14px",marginBottom:"6px"}});
     autoDiv.appendChild(autoStatus);
@@ -1782,27 +1849,43 @@ function renderSettings(){
       fontFamily:"inherit",cursor:API_AVAILABLE?"pointer":"default",opacity:API_AVAILABLE?"1":"0.5"
     },onClick:function(){
       if(!API_AVAILABLE){autoStatus.textContent="API not connected — check Railway connection.";return;}
+      if(!S.finnhubKey){autoStatus.textContent="⚠️ Finnhub API key required — enter it in the provider settings above.";autoStatus.style.color="#f59e0b";return;}
+      autoStatus.style.color="";
       autoBtn.disabled=true;autoBtn.style.opacity="0.6";autoBtn.textContent="⏳ Fetching...";
-      var tickers=ALL_STOCKS.map(function(s){return s.t});
-      var CHUNK=50;var merged={};var idx=0;
-      function next(){
-        if(idx>=tickers.length){
-          Object.assign(S.finvizData,merged);
-          S.finvizTs=Date.now();
-          var got=Object.keys(merged).length;
-          try{
-            var compact={};
-            Object.keys(S.finvizData).forEach(function(tk){
-              var d=S.finvizData[tk],c={};
-              Object.keys(d).forEach(function(k){if(d[k]!=null)c[k]=d[k];});
-              if(Object.keys(c).length)compact[tk]=c;
-            });
-            localStorage.setItem("mexxie_finviz_data",JSON.stringify(compact));
-            localStorage.setItem("mexxie_finviz_ts",String(S.finvizTs));
-          }catch(e){console.warn("localStorage full:",e.message);}
-          render();
-          return;
+      // Skip tickers already in finvizData (unless data is >7 days old — then refresh all)
+      var dataAge=S.finvizTs?(Date.now()-S.finvizTs):Infinity;
+      var isStale=dataAge>7*24*3600*1000;
+      var allTickers=ALL_STOCKS.map(function(s){return s.t});
+      var tickers=isStale?allTickers:allTickers.filter(function(t){return!S.finvizData[t]});
+      if(tickers.length===0){autoStatus.textContent="✅ All stocks already have fresh data.";autoBtn.disabled=false;autoBtn.style.opacity="1";autoBtn.textContent="🤖 Auto-Fetch Fundamentals";return;}
+      var CHUNK=50;var merged={};var idx=0;var hitRateLimit=false;
+      function finishFetch(){
+        Object.assign(S.finvizData,merged);
+        S.finvizTs=Date.now();
+        var got=Object.keys(merged).length;
+        try{
+          var compact={};
+          Object.keys(S.finvizData).forEach(function(tk){
+            var d=S.finvizData[tk],c={};
+            Object.keys(d).forEach(function(k){if(d[k]!=null)c[k]=d[k];});
+            if(Object.keys(c).length)compact[tk]=c;
+          });
+          localStorage.setItem("mexxie_finviz_data",JSON.stringify(compact));
+          localStorage.setItem("mexxie_finviz_ts",String(S.finvizTs));
+        }catch(e){console.warn("localStorage full:",e.message);}
+        // Show a contextual completion message
+        if(hitRateLimit){
+          autoStatus.textContent="⚠️ Finnhub rate limit hit — "+got+"/"+tickers.length+" stocks fetched. Run again in 1 min.";
+          autoStatus.style.color="#f59e0b";
+        }else{
+          autoStatus.textContent="✅ Done — "+got+" stocks updated.";
+          autoStatus.style.color="";
         }
+        autoBtn.disabled=false;autoBtn.style.opacity="1";autoBtn.textContent="🤖 Auto-Fetch Fundamentals";
+        render();
+      }
+      function next(){
+        if(idx>=tickers.length||hitRateLimit){finishFetch();return;}
         var chunk=tickers.slice(idx,idx+CHUNK);
         autoStatus.textContent="Fetching "+(Math.min(idx+CHUNK,tickers.length))+"/"+tickers.length+"...";
         fetch(API_BASE+"/fundamentals",{
@@ -1812,6 +1895,7 @@ function renderSettings(){
           signal:AbortSignal.timeout(60000)
         }).then(function(r){return r.json();}).then(function(d){
           if(d.results)Object.keys(d.results).forEach(function(tk){if(d.results[tk])merged[tk]=d.results[tk];});
+          if(d.rateLimited){hitRateLimit=true;}  // Finnhub 429 — stop chunking, save what we have
           idx+=CHUNK;next();
         }).catch(function(e){
           console.warn("fundamentals fetch error:",e.message);

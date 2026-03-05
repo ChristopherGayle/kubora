@@ -71,36 +71,50 @@ router.post('/', async (req, res) => {
 
   const FINNHUB_BASE = 'https://finnhub.io/api/v1';
   const results = {};
-  const BATCH = 5; // concurrent requests
+  const BATCH = 5; // concurrent requests per wave
+  let rateLimited = false;
+
+  // Fetch one ticker from Finnhub, with one retry on transient failure
+  async function fetchOne(ticker, attempt = 0) {
+    const sym = toFinnhub(ticker);
+    const url = `${FINNHUB_BASE}/stock/metric?symbol=${encodeURIComponent(sym)}&metric=all&token=${token}`;
+    try {
+      const resp = await fetch(url, { signal: AbortSignal.timeout(12000) });
+      if (resp.status === 429) {
+        rateLimited = true;
+        results[ticker] = null;
+        return;
+      }
+      if (!resp.ok) {
+        if (attempt === 0) {
+          // Single retry after 500ms for transient errors
+          await new Promise(r => setTimeout(r, 500));
+          return fetchOne(ticker, 1);
+        }
+        results[ticker] = null;
+        return;
+      }
+      const data = await resp.json();
+      results[ticker] = mapMetrics(data?.metric);
+    } catch (e) {
+      results[ticker] = null;
+    }
+  }
 
   for (let i = 0; i < tickers.length; i += BATCH) {
+    if (rateLimited) break; // Stop early if Finnhub is rate-limiting us
     const batch = tickers.slice(i, i + BATCH);
+    await Promise.allSettled(batch.map(t => fetchOne(t)));
 
-    await Promise.allSettled(batch.map(async (ticker) => {
-      const sym = toFinnhub(ticker);
-      try {
-        const url = `${FINNHUB_BASE}/stock/metric?symbol=${encodeURIComponent(sym)}&metric=all&token=${token}`;
-        const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
-        if (!resp.ok) {
-          results[ticker] = null;
-          return;
-        }
-        const data = await resp.json();
-        const mapped = mapMetrics(data?.metric);
-        results[ticker] = mapped;
-      } catch (e) {
-        results[ticker] = null;
-      }
-    }));
-
-    // Courtesy delay between batches
+    // Courtesy delay between batches (Finnhub free tier = 60 calls/min)
     if (i + BATCH < tickers.length) {
-      await new Promise(r => setTimeout(r, 200));
+      await new Promise(r => setTimeout(r, 250));
     }
   }
 
   const count = Object.values(results).filter(Boolean).length;
-  res.json({ count, total: tickers.length, results });
+  // Surface rate-limit status so frontend can show appropriate message
+  res.json({ count, total: tickers.length, results, rateLimited });
 });
 
 module.exports = router;
