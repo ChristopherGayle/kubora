@@ -1766,6 +1766,65 @@ function renderSettings(){
     : "⚡ Replaces all simulated fundamentals with real data for US stocks. Two clicks — no account needed.";
   fvSec.appendChild(h("div",{style:{fontSize:"11px",color:fvCount>0?t.buy:t.ts,marginBottom:"12px",lineHeight:"1.5"}},fvStatus));
 
+  // ── Auto-Fetch via Yahoo Finance backend ──
+  (function(){
+    var autoDiv=h("div",{style:{marginBottom:"12px",padding:"10px 12px",background:t.bg,border:"1px solid "+(API_AVAILABLE?t.accent+"55":t.border),borderRadius:"8px"}});
+    autoDiv.appendChild(h("div",{style:{fontSize:"10px",fontWeight:"700",color:API_AVAILABLE?t.accent:t.tm,letterSpacing:".5px",marginBottom:"4px"}},"🤖 AUTO-FETCH · GLOBAL (US + Europe + Asia + Africa)"));
+    autoDiv.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,marginBottom:"8px",lineHeight:"1.5"}},
+      API_AVAILABLE
+        ? "Backend fetches fundamentals from Yahoo Finance automatically — no manual steps, covers all regions."
+        : "⚠️ API not connected. Connect Railway API first to enable auto-fetch."));
+    var autoStatus=h("div",{style:{fontSize:"10px",color:t.ts,minHeight:"14px",marginBottom:"6px"}});
+    autoDiv.appendChild(autoStatus);
+    var autoBtn=h("button",{style:{
+      width:"100%",padding:"8px",borderRadius:"7px",border:"none",
+      background:API_AVAILABLE?t.accent:"#666",color:"#fff",fontSize:"11px",fontWeight:"700",
+      fontFamily:"inherit",cursor:API_AVAILABLE?"pointer":"default",opacity:API_AVAILABLE?"1":"0.5"
+    },onClick:function(){
+      if(!API_AVAILABLE){autoStatus.textContent="API not connected — check Railway connection.";return;}
+      autoBtn.disabled=true;autoBtn.style.opacity="0.6";autoBtn.textContent="⏳ Fetching...";
+      var tickers=ALL_STOCKS.map(function(s){return s.t});
+      var CHUNK=50;var merged={};var idx=0;
+      function next(){
+        if(idx>=tickers.length){
+          Object.assign(S.finvizData,merged);
+          S.finvizTs=Date.now();
+          var got=Object.keys(merged).length;
+          try{
+            var compact={};
+            Object.keys(S.finvizData).forEach(function(tk){
+              var d=S.finvizData[tk],c={};
+              Object.keys(d).forEach(function(k){if(d[k]!=null)c[k]=d[k];});
+              if(Object.keys(c).length)compact[tk]=c;
+            });
+            localStorage.setItem("mexxie_finviz_data",JSON.stringify(compact));
+            localStorage.setItem("mexxie_finviz_ts",String(S.finvizTs));
+          }catch(e){console.warn("localStorage full:",e.message);}
+          render();
+          return;
+        }
+        var chunk=tickers.slice(idx,idx+CHUNK);
+        autoStatus.textContent="Fetching "+(Math.min(idx+CHUNK,tickers.length))+"/"+tickers.length+"...";
+        fetch(API_BASE+"/fundamentals",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({tickers:chunk,token:S.finnhubKey}),
+          signal:AbortSignal.timeout(60000)
+        }).then(function(r){return r.json();}).then(function(d){
+          if(d.results)Object.keys(d.results).forEach(function(tk){if(d.results[tk])merged[tk]=d.results[tk];});
+          idx+=CHUNK;next();
+        }).catch(function(e){
+          console.warn("fundamentals fetch error:",e.message);
+          idx+=CHUNK;next();
+        });
+      }
+      next();
+    }},"🤖 Auto-Fetch Fundamentals");
+    autoDiv.appendChild(autoBtn);
+    fvSec.appendChild(autoDiv);
+    fvSec.appendChild(h("div",{style:{textAlign:"center",fontSize:"10px",color:t.tm,marginBottom:"8px",opacity:"0.6"}},"\u2500\u2500\u2500 or import US stocks manually \u2500\u2500\u2500"));
+  })();
+
   // Step 1 + Step 2 in a row
   var fvStepRow=h("div",{style:{display:"flex",gap:"10px",flexWrap:"wrap",marginBottom:"12px"}});
 

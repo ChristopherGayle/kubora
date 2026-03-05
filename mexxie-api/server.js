@@ -27,7 +27,8 @@ app.use('/api/stocks',    require('./routes/stocks'));
 app.use('/api/scores',    require('./routes/scores'));
 app.use('/api/picks',     require('./routes/picks'));
 app.use('/api/valuation', require('./routes/valuation'));
-app.use('/api/eodhd',     require('./routes/eodhd'));
+app.use('/api/eodhd',        require('./routes/eodhd'));
+app.use('/api/fundamentals', require('./routes/fundamentals'));
 
 // Error handler
 app.use((err, req, res, next) => {
