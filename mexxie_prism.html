@@ -740,6 +740,17 @@ function getRanked(){
       // Druckenmiller: real beta from EODHD (ideal 1.0-1.8 for macro-aligned growth)
       if(st.live.beta!=null){var bn=+(st.live.beta);if(!isNaN(bn))sc.s.beta=+bn.toFixed(2);}
     }
+    // Fundamental reality check: when live PE confirms loss-making (ey=0), cap simulated quality
+    // sc.g.ey===0 only occurs when live.pe!=null && live.pe<=0 — never in pure simulation mode
+    if(sc.g.ey===0){
+      // Piotroski: loss-makers fail ROA, CFO, dROA, margin — override simulated random booleans
+      sc.p.pf.roa=false;sc.p.pf.cfo=false;sc.p.pf.droa=false;sc.p.pf.dmargin=false;
+      sc.p.fscore=Object.values(sc.p.pf).filter(Boolean).length;
+      // Quality and moat cannot be "Strong" while the company is losing money
+      sc.g.roic=Math.min(sc.g.roic,5);
+      sc.m.qual=Math.min(sc.m.qual,45);
+      sc.m.moat=Math.min(sc.m.moat,2);
+    }
     var baseComp=comp(sc,nw);
     // Factor Consensus Bonus: reward stocks strong across multiple categories
     var cats=0;
