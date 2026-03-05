@@ -740,16 +740,24 @@ function getRanked(){
       // Druckenmiller: real beta from EODHD (ideal 1.0-1.8 for macro-aligned growth)
       if(st.live.beta!=null){var bn=+(st.live.beta);if(!isNaN(bn))sc.s.beta=+bn.toFixed(2);}
     }
-    // Fundamental reality check: when live PE confirms loss-making (ey=0), cap simulated quality
+    // Fundamental reality check: when live PE confirms loss-making (ey=0), cap simulated metrics
     // sc.g.ey===0 only occurs when live.pe!=null && live.pe<=0 — never in pure simulation mode
     if(sc.g.ey===0){
       // Piotroski: loss-makers fail ROA, CFO, dROA, margin — override simulated random booleans
       sc.p.pf.roa=false;sc.p.pf.cfo=false;sc.p.pf.droa=false;sc.p.pf.dmargin=false;
       sc.p.fscore=Object.values(sc.p.pf).filter(Boolean).length;
-      // Quality and moat cannot be "Strong" while the company is losing money
+      // ROIC, quality, moat cannot be strong while losing money
       sc.g.roic=Math.min(sc.g.roic,5);
       sc.m.qual=Math.min(sc.m.qual,45);
       sc.m.moat=Math.min(sc.m.moat,2);
+      // Altman Z: cap at grey zone — loss-maker cannot score as financially "Safe"
+      sc.a.z=Math.min(sc.a.z,2.5);sc.a.safe=false;sc.a.grey=sc.a.z>=1.81;sc.a.distress=sc.a.z<1.81;
+      // Revenue quality: minimal for a company with no/negative earnings
+      sc.m.revQ=Math.min(sc.m.revQ,1);
+      // Shareholder yield: cannot return capital while losing it; also prevents cats++ bonus
+      sc.t.shY=Math.min(sc.t.shY,2);
+      // EV/EBIT: meaningless when EBIT is negative — set to neutral (25 = score of 0)
+      sc.g.evEbit=Math.max(sc.g.evEbit,25);
     }
     var baseComp=comp(sc,nw);
     // Factor Consensus Bonus: reward stocks strong across multiple categories
