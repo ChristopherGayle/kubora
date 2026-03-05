@@ -3,14 +3,24 @@ const router = express.Router();
 
 const EODHD_BASE = 'https://eodhd.com/api';
 
-// Helper: proxy fetch to EODHD
+// Helper: proxy fetch to EODHD with timeout and sanitised errors
 async function eodhdFetch(path, apiKey) {
   const sep = path.includes('?') ? '&' : '?';
   const url = EODHD_BASE + path + sep + 'api_token=' + apiKey + '&fmt=json';
-  const resp = await fetch(url);
+  let resp;
+  try {
+    resp = await fetch(url, { signal: AbortSignal.timeout(20000) });
+  } catch (e) {
+    // Network / timeout error — don't expose internal details
+    throw new Error(e.name === 'TimeoutError' ? 'EODHD request timed out' : 'EODHD network error');
+  }
   if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error('EODHD ' + resp.status + ': ' + text.substring(0, 200));
+    // Log the real error server-side; return a safe message to the client
+    console.error('[eodhd] upstream error', resp.status, path.split('?')[0]);
+    const status = resp.status;
+    if (status === 401 || status === 403) throw new Error('EODHD: invalid or expired API key');
+    if (status === 429) throw new Error('EODHD: rate limit exceeded — try again later');
+    throw new Error('EODHD: upstream error ' + status);
   }
   return resp.json();
 }

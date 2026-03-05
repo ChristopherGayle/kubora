@@ -13,7 +13,7 @@ router.get('/', async (req, res) => {
     if (sector && sector !== 'All') where.push("sector = '" + db.esc(sector) + "'");
     sql = 'SELECT DISTINCT ON (ticker) ticker, name, sector, region, country_flag, price, market_cap_bn, active ' +
       'FROM prism_stock_universe WHERE ' + where.join(' AND ') + ' ORDER BY ticker, ts DESC';
-    if (limit) sql = 'SELECT * FROM (' + sql + ') sub LIMIT ' + parseInt(limit);
+    if (limit) sql = 'SELECT * FROM (' + sql + ') sub LIMIT ' + Math.min(5000, Math.max(1, parseInt(limit) || 500));
   } else {
     let where = [];
     if (region && region !== 'Worldwide') where.push("region = '" + db.esc(region) + "'");
@@ -21,7 +21,7 @@ router.get('/', async (req, res) => {
     sql = 'SELECT ticker, name, sector, region, country_flag, price, market_cap_bn, active FROM prism_stock_universe';
     if (where.length) sql += ' WHERE ' + where.join(' AND ');
     sql += ' LATEST ON ts PARTITION BY ticker';
-    if (limit) sql += ' LIMIT ' + parseInt(limit);
+    if (limit) sql += ' LIMIT ' + Math.min(5000, Math.max(1, parseInt(limit) || 500));
     sql += ';';
   }
 
