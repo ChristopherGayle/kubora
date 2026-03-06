@@ -426,7 +426,13 @@ var _eodhdBulkCache={ts:0,quoteMap:null};
 var EODHD_BULK_TTL=15*60*1000;
 var FMP_BASE="https://financialmodelingprep.com/stable";
 var FMP_TICKERS={"NOVO-B":"NVO","ROG":"RHHBY","NESN":"NSRGY","MC":"LVMHF","SHEL":"SHEL","TTE":"TTE","SIE":"SIEGY","HSBA":"HSBC","UBS":"UBS","OR":"LRLCY","BAYN":"BAYRY","DTE":"DTEGY","ENEL":"ENLAY","ABB":"ABB","VOW3":"VWAGY","SU.PA":"SBGSY","AIR.PA":"EADSY","RMS.PA":"HESAY","ALV.DE":"ALIZY","BNP.PA":"BNPQY","DGE.L":"DEO","IBE.MC":"IBDRY","9984":"SFTBY","005930":"SSNLF","7203":"TM","9988":"BABA","0700":"TCEHY","RELIANCE":"RELIANCE.NS","TCS":"TCS","6758":"SONY","1398":"IDCBY","7267":"HMC","INFY":"INFY","2317":"HNHPF","6861":"KYCCF","035420":"NPSNY","9433":"KDDIY","4503":"ALPMY","3690":"MPNGY","2454":"MDTKF","CBA":"CMWAY","CRPG":"CMPQF","GGAL":"GGAL","EC":"EC","BSBR":"BSBR","NPN":"NPSNY","BTI":"BTI","AGL":"AAUKF","SOL":"SSL","SBK":"SGBLY","FSR":"FSRZY","MTN":"MTNOY","DANGCEM":"DANGF","SBUX":"SFRPF","EGH":"EGHGF"};
-function fmpTicker(t){return FMP_TICKERS[t]||t}
+function normalizeProviderTicker(t){
+  if(!t)return t;
+  if(/\.LSE$/i.test(t))return t.replace(/\.LSE$/i,".L");
+  if(/\.JSE$/i.test(t))return t.replace(/\.JSE$/i,".JO");
+  return t;
+}
+function fmpTicker(t){return FMP_TICKERS[t]||normalizeProviderTicker(t)}
 var FINNHUB_BASE="https://finnhub.io/api/v1";
 var EODHD_BASE="https://eodhd.com/api";
 // EODHD ticker → {symbol}.{exchange} mapping for non-US stocks
