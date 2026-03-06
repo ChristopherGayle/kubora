@@ -68,7 +68,12 @@ button{font-family:inherit;cursor:pointer;-webkit-tap-highlight-color:transparen
 </style>
 </head>
 <body>
-<div id="app"></div>
+<div id="app" style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;color:#94a3b8;font-family:'DM Sans','Segoe UI',system-ui,sans-serif">
+  <div style="text-align:center;max-width:520px">
+    <div style="font-size:16px;font-weight:600;color:#e2e8f0;margin-bottom:8px">Launching Mexxie Prism...</div>
+    <div style="font-size:13px;line-height:1.5">Loading data sources and rendering dashboard.</div>
+  </div>
+</div>
 <script>
 // ===================== THEMES =====================
 var THEMES={
@@ -1738,7 +1743,7 @@ function renderSettings(){
     fhRow.appendChild(fhInput);
     dc.appendChild(fhRow);
     var testRow=h("div",{style:{display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap",marginBottom:"14px"}});
-    var fhTestStatus=h("span",{style:{fontSize:"11px",color:S.finnhubKey?t.buy:t.tm}},S.finnhubKey?"\u2713 Key entered \u2014 required for Auto-Fetch":"No key \u2014 using simulated data · Auto-Fetch disabled"});
+    var fhTestStatus=h("span",{style:{fontSize:"11px",color:S.finnhubKey?t.buy:t.tm}},S.finnhubKey?"\u2713 Key entered \u2014 required for Auto-Fetch":"No key \u2014 using simulated data · Auto-Fetch disabled");
     var testBtn=h("button",{style:{
       padding:"8px 16px",borderRadius:"8px",border:"1px solid "+t.buy+"66",
       background:t.buyGlow,color:t.buy,fontSize:"12px",fontWeight:"600",fontFamily:"inherit",cursor:"pointer"
@@ -2012,7 +2017,9 @@ function render(){
   var ds=document.getElementById("ds");
   if(!ds){ds=document.createElement("style");ds.id="ds";document.head.appendChild(ds)}
   ds.textContent="input[type=range]{background:"+t.rt+"}input[type=range]::-webkit-slider-thumb{background:"+t.rth+";border:2px solid "+t.accent+"}input[type=range]::-moz-range-thumb{background:"+t.rth+";border:2px solid "+t.accent+"}select{background:"+t.surface+";color:"+t.text+";border:1px solid "+t.border+";border-radius:4px;padding:4px 8px;font-size:13px}.region-bar{border-color:"+t.border+"}";
-  var app=document.getElementById("app");app.innerHTML="";
+  var app=document.getElementById("app");
+  if(!app){throw new Error("Missing #app container")}
+  app.innerHTML="";
   app.appendChild(renderHeader());
   app.appendChild(renderTabs());
   app.appendChild(renderRefreshBar());
@@ -2026,19 +2033,40 @@ function render(){
   app.appendChild(renderFooter());
 }
 
+function renderFatalError(err){
+  var app=document.getElementById("app");
+  if(!app)return;
+  var msg=err&&err.message?err.message:String(err||"Unknown error");
+  app.innerHTML="<div style='max-width:780px;margin:40px auto;padding:20px;border-radius:12px;border:1px solid #ef444488;background:#2a0f14;color:#fecaca;font-family:DM Sans,Segoe UI,sans-serif'><div style='font-size:18px;font-weight:700;margin-bottom:6px'>Mexxie Prism hit a startup error</div><div style='font-size:13px;line-height:1.6'>The app could not finish loading. Reload the page. If this persists, clear site data in browser settings.</div><div style='margin-top:12px;font-family:JetBrains Mono,monospace;font-size:12px;background:#12070a;padding:10px;border-radius:8px;word-break:break-word'>"+msg+"</div></div>";
+}
+
 // ===== ASYNC STARTUP =====
 (async function startup(){
-  await checkAPI();
-  console.log('API available:',API_AVAILABLE);
-  if(API_AVAILABLE){
-    await Promise.all([loadStockUniverse(),loadPriorPicks()]);
-  }
-  render();
-  // Async: load market valuation
-  if(!S.marketVal&&S.finnhubKey){
-    fetchMarketValuation(false).then(function(r){if(r){S.marketVal=r;persistValuation(r);render()}});
+  try{
+    await checkAPI();
+    console.log('API available:',API_AVAILABLE);
+    if(API_AVAILABLE){
+      await Promise.all([loadStockUniverse(),loadPriorPicks()]);
+    }
+    render();
+    // Async: load market valuation
+    if(!S.marketVal&&S.finnhubKey){
+      fetchMarketValuation(false).then(function(r){if(r){S.marketVal=r;persistValuation(r);render()}});
+    }
+  }catch(err){
+    console.error("Startup failure:",err);
+    renderFatalError(err);
   }
 })();
+
+window.addEventListener("error",function(ev){
+  console.error("Unhandled error:",ev.error||ev.message);
+  renderFatalError(ev.error||new Error(ev.message||"Unhandled error"));
+});
+window.addEventListener("unhandledrejection",function(ev){
+  console.error("Unhandled rejection:",ev.reason);
+  renderFatalError(ev.reason||new Error("Unhandled promise rejection"));
+});
 
 // Register PWA Service Worker
 if('serviceWorker' in navigator){
