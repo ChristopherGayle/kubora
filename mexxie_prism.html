@@ -840,17 +840,27 @@ function getRanked(){
   // Market cap tier filter — only applies to stocks with known mc (mc>0)
   var CAP_RANGES={mega:{min:200,max:Infinity},large:{min:10,max:200},mid:{min:2,max:10},small:{min:0.25,max:2},micro:{min:0.15,max:0.3}};
   if(S.capSize&&S.capSize!=="all"){var cr=CAP_RANGES[S.capSize];if(cr)pool=pool.filter(function(x){return x.mc>0&&x.mc>=cr.min&&x.mc<cr.max});}
+  function numOrNull(v){if(v==null||v==="")return null;var n=+v;return isNaN(n)?null:n}
+  var hasRealFundCoverage=Object.keys(S.finvizData||{}).length>0||pool.some(function(st){
+    if(!st.live)return false;
+    var pe0=numOrNull(st.live.pe),pb0=numOrNull(st.live.pb),roe0=numOrNull(st.live.roe),fcf0=numOrNull(st.live.fcfYield);
+    return pe0!=null||pb0!=null||roe0!=null||fcf0!=null;
+  });
   // Build O(1) ticker→index map once instead of O(n) findIndex per stock (avoids O(n²) freeze with 3000+ stocks)
   var tickerIdx={};ALL_STOCKS.forEach(function(s,i){tickerIdx[s.t]=i});
   var arr=pool.map(function(st,i){
     var idx=tickerIdx[st.t];if(idx===undefined)idx=-1;var sc=genSc(idx);
     applyFinvizData(sc,st.t); // real fundamentals from Finviz CSV (overrides simulation)
     if(st.live){
+      var peN=numOrNull(st.live.pe),pbN=numOrNull(st.live.pb),roeN=numOrNull(st.live.roe),fcfN=numOrNull(st.live.fcfYield);
       if(st.live.pb!=null)sc.t.pb=+Math.abs(st.live.pb).toFixed(2);
       if(st.live.divYield!=null)sc.t.dy=+(st.live.divYield*100).toFixed(1);
       if(st.live.roe!=null)sc.g.roic=+(st.live.roe*100).toFixed(1);
       // Bug fix: negative P/E (loss-making stock) → EY=0, not simulated positive value
-      if(st.live.pe!=null){if(st.live.pe>0)sc.g.ey=+(100/st.live.pe).toFixed(1);else sc.g.ey=0;}
+      if(peN!=null){if(peN>0)sc.g.ey=+(100/peN).toFixed(1);else sc.g.ey=0;}
+      // Additional loss-making guards: negative ROE or non-positive FCF yield should not keep simulated value score
+      if(roeN!=null&&roeN<0)sc.g.ey=0;
+      if(fcfN!=null&&fcfN<=0)sc.t.fcf=0;
       if(st.live.change!=null)sc.s.mom=+Math.min(100,Math.max(0,50+st.live.change*2)).toFixed(0);
       if(st.live.fcfYield!=null&&st.live.fcfYield>0)sc.t.fcf=+Math.min(14,st.live.fcfYield).toFixed(1);
       if(st.live.debtEquity!=null){sc.p.pf.dlev=st.live.debtEquity<1.5;sc.p.fscore=Object.values(sc.p.pf).filter(Boolean).length}
@@ -864,6 +874,19 @@ function getRanked(){
     }
     // Propagate FMP loss-marker (negative PE) into EY=0 so the guard below fires
     if(st.live&&st.live.lossMarker)sc.g.ey=0;
+    // Large-universe safeguard: if live/Finviz data exists for the universe but this ticker has none,
+    // suppress simulated top-rank outcomes until real fundamentals are available.
+    var hasFinviz=!!S.finvizData[st.t];
+    var hasLiveFund=!!(st.live&&(numOrNull(st.live.pe)!=null||numOrNull(st.live.pb)!=null||numOrNull(st.live.roe)!=null||numOrNull(st.live.fcfYield)!=null));
+    if(ALL_STOCKS.length>=1000&&hasRealFundCoverage&&!hasFinviz&&!hasLiveFund){
+      sc.g.ey=Math.min(sc.g.ey,2);
+      sc.g.roic=Math.min(sc.g.roic,6);
+      sc.m.qual=Math.min(sc.m.qual,35);
+      sc.m.moat=Math.min(sc.m.moat,2);
+      sc.p.fscore=Math.min(sc.p.fscore,3);
+      sc.t.shY=Math.min(sc.t.shY,1);
+      sc.g.evEbit=Math.max(sc.g.evEbit,25);
+    }
     // Fundamental reality check: when live data confirms loss-making, cap simulated metrics
     // ey===0 occurs from: Finviz pe<=0, Finnhub pe<=0, FMP lossMarker — never from pure simulation (simulated ey always 5-25)
     if(sc.g.ey===0){
