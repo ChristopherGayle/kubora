@@ -59,7 +59,17 @@ async function main() {
 
   // 1. Fetch all stocks from local QuestDB
   console.log('Querying local QuestDB...');
-  const sql = `
+  const sqlWithCap = `
+    SELECT s.symbol, s.name, s.sector, s.region, dp.close,
+           COALESCE(s.market_cap_bn, dp.market_cap_bn, s.market_cap/1e9, dp.market_cap/1e9, 0) AS market_cap_bn
+    FROM (SELECT symbol, name, sector, region, market_cap_bn, market_cap FROM stocks LATEST ON update_time PARTITION BY symbol) s
+    JOIN (SELECT symbol, close, market_cap_bn, market_cap FROM daily_prices LATEST ON timestamp PARTITION BY symbol) dp
+    ON s.symbol = dp.symbol
+    WHERE dp.close > 0.5
+    AND s.region IN ('US', 'Europe', 'Asia', 'S. America', 'Africa', 'OTCQX')
+    ORDER BY s.region, dp.close DESC
+  `;
+  const sqlFallback = `
     SELECT s.symbol, s.name, s.sector, s.region, dp.close
     FROM (SELECT symbol, name, sector, region FROM stocks LATEST ON update_time PARTITION BY symbol) s
     JOIN (SELECT symbol, close FROM daily_prices LATEST ON timestamp PARTITION BY symbol) dp
@@ -71,7 +81,12 @@ async function main() {
 
   let rows;
   try {
-    rows = await queryQuestDB(sql);
+    try{
+      rows = await queryQuestDB(sqlWithCap);
+    }catch(e){
+      console.warn('⚠️ market_cap columns not available in ETL tables, falling back to price-only sync');
+      rows = await queryQuestDB(sqlFallback);
+    }
   } catch (e) {
     console.error('❌ Could not connect to local QuestDB:', e.message);
     console.error('   Make sure QuestDB is running: http://localhost:9000');
@@ -90,7 +105,7 @@ async function main() {
       r: region,
       co: REGION_FLAGS[r.region] || '🌍',
       p: +(+r.close).toFixed(2),
-      mc: 0
+      mc: Math.max(0,+(+r.market_cap_bn||0).toFixed(3))
     };
   });
 

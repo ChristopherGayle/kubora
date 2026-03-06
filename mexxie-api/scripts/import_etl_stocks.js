@@ -66,7 +66,17 @@ async function main() {
 
   // Step 2: Query stocks + daily_prices with join
   console.log('\nQuerying ETL stocks + daily_prices...');
-  const etlSQL = `
+  const etlSQLWithCap = `
+    SELECT s.symbol, s.name, s.sector, s.region, dp.close,
+           COALESCE(s.market_cap_bn, dp.market_cap_bn, s.market_cap/1e9, dp.market_cap/1e9, 0) AS market_cap_bn
+    FROM (SELECT symbol, name, sector, region, market_cap_bn, market_cap FROM stocks LATEST ON update_time PARTITION BY symbol) s
+    JOIN (SELECT symbol, close, market_cap_bn, market_cap FROM daily_prices LATEST ON timestamp PARTITION BY symbol) dp
+    ON s.symbol = dp.symbol
+    WHERE dp.close > 1.0
+    AND s.region IN ('US', 'Europe', 'Asia', 'S. America', 'Africa')
+    ORDER BY s.region, dp.close DESC
+  `;
+  const etlSQLFallback = `
     SELECT s.symbol, s.name, s.sector, s.region, dp.close
     FROM (SELECT symbol, name, sector, region FROM stocks LATEST ON update_time PARTITION BY symbol) s
     JOIN (SELECT symbol, close FROM daily_prices LATEST ON timestamp PARTITION BY symbol) dp
@@ -75,7 +85,11 @@ async function main() {
     AND s.region IN ('US', 'Europe', 'Asia', 'S. America', 'Africa')
     ORDER BY s.region, dp.close DESC
   `;
-  const etlRes = await db.query(etlSQL);
+  let etlRes = await db.query(etlSQLWithCap);
+  if (!etlRes.ok) {
+    console.warn('⚠️ market_cap columns not available in ETL tables, using fallback query');
+    etlRes = await db.query(etlSQLFallback);
+  }
   if (!etlRes.ok) { console.error('ETL query failed:', etlRes.error); process.exit(1); }
 
   const allStocks = etlRes.rows;
@@ -101,7 +115,8 @@ async function main() {
       const sector = mapSector(r.sector);
       const flag = REGION_FLAGS[r.region] || '🌍';
       const price = +(+r.close).toFixed(2);
-      return `(now(),'${esc(r.symbol)}','${esc(r.name)}','${sector}','${r.region}','${flag}',${price},0,true)`;
+      const mc = Math.max(0, +(+r.market_cap_bn || 0).toFixed(3));
+      return `(now(),'${esc(r.symbol)}','${esc(r.name)}','${sector}','${r.region}','${flag}',${price},${mc},true)`;
     }).join(',');
 
     const sql = `INSERT INTO prism_stock_universe (ts,ticker,name,sector,region,country_flag,price,market_cap_bn,active) VALUES ${values}`;

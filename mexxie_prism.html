@@ -835,11 +835,27 @@ function T(){return THEMES[S.theme]}
 // ===================== RANKING WITH CONSENSUS BONUS =====================
 function getRanked(){
   var nw=nW();var pool=ALL_STOCKS;
+  S.capFilterFallback=false;S.capFilterFallbackMsg="";
   if(S.region!=="Worldwide")pool=pool.filter(function(x){return x.r===S.region});
   if(S.sector!=="All")pool=pool.filter(function(x){return x.s===S.sector});
   // Market cap tier filter — only applies to stocks with known mc (mc>0)
   var CAP_RANGES={mega:{min:200,max:Infinity},large:{min:10,max:200},mid:{min:2,max:10},small:{min:0.25,max:2},micro:{min:0.15,max:0.3}};
-  if(S.capSize&&S.capSize!=="all"){var cr=CAP_RANGES[S.capSize];if(cr)pool=pool.filter(function(x){return x.mc>0&&x.mc>=cr.min&&x.mc<cr.max});}
+  if(S.capSize&&S.capSize!=="all"){
+    var cr=CAP_RANGES[S.capSize];
+    if(cr){
+      var basePool=pool.slice();
+      var byMc=pool.filter(function(x){return x.mc>0&&x.mc>=cr.min&&x.mc<cr.max});
+      if(byMc.length===0&&basePool.length>0){
+        var PRICE_PROXY={mega:{min:120,max:Infinity},large:{min:25,max:120},mid:{min:8,max:25},small:{min:2,max:8},micro:{min:0,max:2}};
+        var pr=PRICE_PROXY[S.capSize];
+        pool=basePool.filter(function(x){return x.p>=pr.min&&x.p<pr.max});
+        S.capFilterFallback=true;
+        S.capFilterFallbackMsg="Using price proxy for "+S.capSize+" cap because market cap is missing for most symbols.";
+      }else{
+        pool=byMc;
+      }
+    }
+  }
   function numOrNull(v){if(v==null||v==="")return null;var n=+v;return isNaN(n)?null:n}
   var hasRealFundCoverage=Object.keys(S.finvizData||{}).length>0||pool.some(function(st){
     if(!st.live)return false;
@@ -886,6 +902,10 @@ function getRanked(){
       sc.p.fscore=Math.min(sc.p.fscore,3);
       sc.t.shY=Math.min(sc.t.shY,1);
       sc.g.evEbit=Math.max(sc.g.evEbit,25);
+    }
+    if(ALL_STOCKS.length>=1000){
+      if(!st.s||st.s==="Unknown"){sc.m.qual=Math.min(sc.m.qual,35);sc.m.moat=Math.min(sc.m.moat,2);}
+      if(!(st.mc>0)){sc.g.ey=Math.min(sc.g.ey,4);sc.p.fscore=Math.min(sc.p.fscore,4);}
     }
     // Fundamental reality check: when live data confirms loss-making, cap simulated metrics
     // ey===0 occurs from: Finviz pe<=0, Finnhub pe<=0, FMP lossMarker — never from pure simulation (simulated ey always 5-25)
@@ -1132,6 +1152,10 @@ function renderScreener(){
     if(cr2){var unknownMc=ALL_STOCKS.filter(function(x){if(S.region!=="Worldwide"&&x.r!==S.region)return false;if(S.sector!=="All"&&x.s!==S.sector)return false;return!(x.mc>0);}).length;
       if(unknownMc>0)f.appendChild(h("div",{style:{margin:"0 0 10px",padding:"7px 14px",borderRadius:"8px",background:t.surface,border:"1px solid "+t.border,fontSize:"11px",color:t.ts}},
         "\u26A0\uFE0F "+unknownMc+" stock"+(unknownMc>1?"s":"")+" excluded \u2014 market cap unknown. Switch to \u201CAll\u201D to include them."));
+    }
+    if(S.capFilterFallback){
+      f.appendChild(h("div",{style:{margin:"0 0 10px",padding:"7px 14px",borderRadius:"8px",background:t.surface,border:"1px solid "+t.border,fontSize:"11px",color:t.ts}},
+        "\u2139\uFE0F "+(S.capFilterFallbackMsg||"Using price proxy due to missing market cap data.")));
     }
   }
   // Stock cards
