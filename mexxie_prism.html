@@ -434,6 +434,7 @@ function normalizeProviderTicker(t){
 }
 function fmpTicker(t){return FMP_TICKERS[t]||normalizeProviderTicker(t)}
 var FINNHUB_BASE="https://finnhub.io/api/v1";
+var TWELVE_BASE="https://api.twelvedata.com";
 var EODHD_BASE="https://eodhd.com/api";
 // EODHD ticker → {symbol}.{exchange} mapping for non-US stocks
 var EODHD_TICKERS={
@@ -465,6 +466,114 @@ function eodhdExchange(t){
   var dot=t.lastIndexOf('.');if(dot<0)return'US'; // plain ticker → US
   var sfx=t.substring(dot+1).toUpperCase();
   return EXCHANGE_MAP[sfx]||'US';
+}
+
+function unresolvedSymbolsForFallback(){
+  var syms=[];
+  ALL_STOCKS.forEach(function(st){
+    var hasMc=st.mc>0;
+    var hasLiveFund=!!(st.live&&(st.live.pe!=null||st.live.pb!=null||st.live.roe!=null||st.live.fcfYield!=null));
+    if(!hasMc||!hasLiveFund)syms.push(fmpTicker(st.t));
+  });
+  return Array.from(new Set(syms));
+}
+
+function applyProviderDataToStocks(symbolData){
+  ALL_STOCKS.forEach(function(st){
+    var sym=fmpTicker(st.t);var q=symbolData[sym];
+    if(!q)return;
+    if(q.price&&q.price>0)st.p=+q.price.toFixed(2);
+    if(q.mc&&q.mc>0)st.mc=+q.mc.toFixed(0);
+    if(q.name&&q.name.length>2)st.n=q.name;
+    if(!st.live)st.live={};
+    if(q.pb!=null)st.live.pb=q.pb;
+    if(q.roe!=null)st.live.roe=q.roe;
+    if(q.divYield!=null)st.live.divYield=q.divYield;
+    if(q.fcfYield!=null)st.live.fcfYield=q.fcfYield;
+    if(q.pe!=null)st.live.pe=q.pe;
+    if(q.change!=null)st.live.change=q.change;
+    if(q.debtEquity!=null)st.live.debtEquity=q.debtEquity;
+    if(q.lossMarker)st.live.lossMarker=true;
+  });
+}
+
+async function fallbackFMPForMissing(maxSymbols){
+  if(!S.apiKey)return{updated:0,calls:0,errors:[]};
+  var symbols=unresolvedSymbolsForFallback().slice(0,maxSymbols||220);
+  if(symbols.length===0)return{updated:0,calls:0,errors:[]};
+  var quoteMap={};var calls=0;var errors=[];
+  var quoteBatches=batchArray(symbols,5);
+  for(var b=0;b<quoteBatches.length;b++){
+    var batch=quoteBatches[b];
+    try{
+      var results=await Promise.all(batch.map(function(sym){calls++;return fetch(FMP_BASE+"/quote?symbol="+encodeURIComponent(sym)+"&apikey="+S.apiKey).then(function(r){return r.ok?r.json():null}).catch(function(){return null})}));
+      for(var i=0;i<results.length;i++){
+        var data=results[i],sym=batch[i];
+        if(data&&Array.isArray(data)&&data[0]){
+          var q=data[0];
+          quoteMap[sym]={price:q.price,change:q.changePercentage,mc:q.marketCap?+(q.marketCap/1e9):null,name:q.name};
+        }
+      }
+    }catch(e){errors.push("FMP quotes: "+e.message)}
+    if(b<quoteBatches.length-1)await new Promise(function(r){setTimeout(r,120)});
+  }
+  var ratioTargets=symbols.filter(function(sym){return !!quoteMap[sym]});
+  var ratioBatches=batchArray(ratioTargets,3);
+  for(var rb=0;rb<ratioBatches.length;rb++){
+    var rbatch=ratioBatches[rb];
+    try{
+      var rres=await Promise.all(rbatch.map(function(sym){calls++;return fetch(FMP_BASE+"/ratios-ttm?symbol="+encodeURIComponent(sym)+"&apikey="+S.apiKey).then(function(r){return r.ok?r.json():null}).catch(function(){return null})}));
+      for(var j=0;j<rres.length;j++){
+        var rd=rres[j],sym2=rbatch[j];
+        if(rd&&Array.isArray(rd)&&rd[0]){
+          var d=rd[0];
+          var pe=(d.priceToEarningsRatioTTM!=null&&d.priceToEarningsRatioTTM>0)?d.priceToEarningsRatioTTM:null;
+          quoteMap[sym2].pb=d.priceToBookRatioTTM;
+          quoteMap[sym2].pe=pe;
+          quoteMap[sym2].divYield=(d.dividendYieldTTM!=null)?Math.min(0.25,d.dividendYieldTTM):null;
+          quoteMap[sym2].fcfYield=d.freeCashFlowPerShareTTM;
+          quoteMap[sym2].debtEquity=d.debtToEquityRatioTTM;
+          quoteMap[sym2].roe=(d.netProfitMarginTTM&&d.assetTurnoverTTM&&d.financialLeverageRatioTTM)?d.netProfitMarginTTM*d.assetTurnoverTTM*d.financialLeverageRatioTTM:null;
+          if(d.priceToEarningsRatioTTM!=null&&d.priceToEarningsRatioTTM<=0)quoteMap[sym2].lossMarker=true;
+        }
+      }
+    }catch(e2){errors.push("FMP ratios: "+e2.message)}
+    if(rb<ratioBatches.length-1)await new Promise(function(r){setTimeout(r,120)});
+  }
+  applyProviderDataToStocks(quoteMap);
+  return{updated:Object.keys(quoteMap).length,calls:calls,errors:errors};
+}
+
+async function fallbackTwelveForMissing(maxSymbols){
+  if(!S.twelveKey)return{updated:0,calls:0,errors:[]};
+  var symbols=unresolvedSymbolsForFallback().slice(0,maxSymbols||120);
+  if(symbols.length===0)return{updated:0,calls:0,errors:[]};
+  var dataMap={};var calls=0;var errors=[];
+  var batches=batchArray(symbols,5);
+  for(var b=0;b<batches.length;b++){
+    var batch=batches[b];
+    try{
+      var out=await Promise.all(batch.map(async function(sym){
+        calls++;
+        var r=await fetch(TWELVE_BASE+"/quote?symbol="+encodeURIComponent(sym)+"&apikey="+encodeURIComponent(S.twelveKey),{signal:AbortSignal.timeout(10000)});
+        return r.ok?r.json():null;
+      }));
+      for(var i=0;i<out.length;i++){
+        var d=out[i],sym=batch[i];
+        if(!d||d.status==="error")continue;
+        var px=+(d.close||d.price||0);
+        var ch=+(d.percent_change||d.change_percent||0);
+        var mcRaw=+(d.market_cap||d.marketCapitalization||0);
+        var mcBn=mcRaw>1e6?mcRaw/1e9:mcRaw;
+        dataMap[sym]={price:isNaN(px)?null:px,change:isNaN(ch)?null:ch,mc:isNaN(mcBn)?null:mcBn,name:d.name||null};
+        var peVal=+(d.pe||d.pe_ratio||NaN);if(!isNaN(peVal)&&peVal>0)dataMap[sym].pe=peVal;else if(!isNaN(peVal)&&peVal<=0)dataMap[sym].lossMarker=true;
+        var pbVal=+(d.pb||d.price_to_book||NaN);if(!isNaN(pbVal)&&pbVal>0)dataMap[sym].pb=pbVal;
+      }
+    }catch(e){errors.push("Twelve batch "+(b+1)+": "+e.message)}
+    if(b<batches.length-1)await new Promise(function(r){setTimeout(r,150)});
+  }
+  applyProviderDataToStocks(dataMap);
+  return{updated:Object.keys(dataMap).length,calls:calls,errors:errors};
 }
 
 // ===================== FINVIZ CSV IMPORT =====================
@@ -696,9 +805,25 @@ async function fetchEODHDLive(){
       if(q&&q.price)pk.curr=+(+q.price).toFixed(2);
     });
 
+    var chainParts=[];
+    if(S.apiKey){
+      setMsg("EODHD complete. Running FMP fallback for unresolved fundamentals...");
+      var fb1=await fallbackFMPForMissing(220);
+      callCount+=fb1.calls||0;
+      if(fb1.errors&&fb1.errors.length)errors=errors.concat(fb1.errors);
+      if(fb1.updated>0)chainParts.push("FMP "+fb1.updated);
+    }
+    if(S.twelveKey){
+      setMsg("Running Twelve Data fallback for remaining gaps...");
+      var fb2=await fallbackTwelveForMissing(120);
+      callCount+=fb2.calls||0;
+      if(fb2.errors&&fb2.errors.length)errors=errors.concat(fb2.errors);
+      if(fb2.updated>0)chainParts.push("Twelve "+fb2.updated);
+    }
+
     S.dataSeed=Math.floor(Math.random()*90000)+10000;
     S.lastRefresh=new Date();S.refreshCount=(S.refreshCount||0)+1;
-    S.lastSource="EODHD EOD";S.lastCalls=callCount;S.lastErrors=errors;
+    S.lastSource=chainParts.length?("EODHD + "+chainParts.join(" + ")):"EODHD EOD";S.lastCalls=callCount;S.lastErrors=errors;
   }catch(e){errors.push("Fatal: "+e.message);S.lastErrors=errors}
   S.loading=false;S.loadingMsg="";try{render()}catch(re){console.error("render error on load end:",re);try{document.getElementById("app").innerHTML="<div style='padding:40px;color:#ef4444'>Render error — please reload the page.<br><small>"+re.message+"</small></div>"}catch(x){}}
   persistScores();
@@ -821,6 +946,7 @@ var S={
   provider:(function(){try{return localStorage.getItem("mexxie_provider")||"finnhub"}catch(e){return"finnhub"}})(),
   apiKey:(function(){try{return localStorage.getItem("mexxie_api_key")||""}catch(e){return""}})(),
   finnhubKey:(function(){try{return localStorage.getItem("mexxie_finnhub_key")||""}catch(e){return""}})(),
+  twelveKey:(function(){try{return localStorage.getItem("mexxie_twelve_key")||""}catch(e){return""}})(),
   eodhKey:(function(){try{return localStorage.getItem("mexxie_eodh_key")||""}catch(e){return""}})(),
   finvizData:(function(){try{var d=localStorage.getItem("mexxie_finviz_data");return d?JSON.parse(d):{}}catch(e){return{}}}()),
   finvizTs:(function(){try{return+localStorage.getItem("mexxie_finviz_ts")||null}catch(e){return null}}()),
@@ -1758,6 +1884,22 @@ function renderSettings(){
     },onInput:function(e){S.eodhKey=e.target.value.trim();try{localStorage.setItem("mexxie_eodh_key",S.eodhKey)}catch(x){}},onFocus:function(){this.style.borderColor=t.accent},onBlur:function(){this.style.borderColor=t.border}});
     edRow.appendChild(edInput);
     dc.appendChild(edRow);
+    var fbHdr=h("div",{style:{fontSize:"11px",fontWeight:"700",color:t.ts,marginBottom:"6px"}},"Fallback Chain (optional): EODHD \u2192 FMP \u2192 Twelve");
+    dc.appendChild(fbHdr);
+    var fmpFbRow=h("div",{style:{marginBottom:"10px"}});
+    fmpFbRow.appendChild(h("label",{style:{fontSize:"11px",fontWeight:"600",display:"block",marginBottom:"4px",color:t.text}},"FMP Key (fallback)"));
+    var fmpFbInput=h("input",{type:"password",value:S.apiKey||"",placeholder:"Optional: FMP key for unresolved symbols",style:{
+      width:"100%",padding:"9px 11px",borderRadius:"8px",border:"1px solid "+t.border,
+      background:t.surface,color:t.text,fontSize:"12px",fontFamily:"'JetBrains Mono',monospace",outline:"none"
+    },onInput:function(e){S.apiKey=e.target.value.trim();try{localStorage.setItem("mexxie_api_key",S.apiKey)}catch(x){}},onFocus:function(){this.style.borderColor=t.accent},onBlur:function(){this.style.borderColor=t.border}});
+    fmpFbRow.appendChild(fmpFbInput);dc.appendChild(fmpFbRow);
+    var twRow=h("div",{style:{marginBottom:"12px"}});
+    twRow.appendChild(h("label",{style:{fontSize:"11px",fontWeight:"600",display:"block",marginBottom:"4px",color:t.text}},"Twelve Data Key (fallback)"));
+    var twInput=h("input",{type:"password",value:S.twelveKey||"",placeholder:"Optional: Twelve key for final gap fill",style:{
+      width:"100%",padding:"9px 11px",borderRadius:"8px",border:"1px solid "+t.border,
+      background:t.surface,color:t.text,fontSize:"12px",fontFamily:"'JetBrains Mono',monospace",outline:"none"
+    },onInput:function(e){S.twelveKey=e.target.value.trim();try{localStorage.setItem("mexxie_twelve_key",S.twelveKey)}catch(x){}},onFocus:function(){this.style.borderColor=t.accent},onBlur:function(){this.style.borderColor=t.border}});
+    twRow.appendChild(twInput);dc.appendChild(twRow);
     // What's included info
     var infoBox=h("div",{style:{padding:"10px 12px",background:t.accentGlow,border:"1px solid "+t.accent+"33",borderRadius:"8px",marginBottom:"14px"}});
     infoBox.appendChild(h("div",{style:{fontSize:"11px",fontWeight:"600",color:t.accent,marginBottom:"4px"}},"\u2728 EODHD Data Enrichment"));
@@ -2036,8 +2178,8 @@ function renderSettings(){
     padding:"6px 12px",borderRadius:"8px",border:"1px solid "+t.border,
     background:t.surface,color:t.tm,fontSize:"11px",fontWeight:"600",fontFamily:"inherit"
   },onClick:function(){
-    try{localStorage.removeItem("mexxie_ratios_cache");localStorage.removeItem("mexxie_finnhub_cache");localStorage.removeItem("mexxie_api_key");localStorage.removeItem("mexxie_finnhub_key");localStorage.removeItem("mexxie_eodh_key")}catch(e){}
-    S.apiKey="gi9xNO7CWDJhG2xupgJaO0wuarOBRUei";S.finnhubKey="d6ebj19r01qloir5vun0d6ebj19r01qloir5vung";S.eodhKey="";
+    try{localStorage.removeItem("mexxie_ratios_cache");localStorage.removeItem("mexxie_finnhub_cache");localStorage.removeItem("mexxie_api_key");localStorage.removeItem("mexxie_finnhub_key");localStorage.removeItem("mexxie_twelve_key");localStorage.removeItem("mexxie_eodh_key")}catch(e){}
+    S.apiKey="gi9xNO7CWDJhG2xupgJaO0wuarOBRUei";S.finnhubKey="d6ebj19r01qloir5vun0d6ebj19r01qloir5vung";S.twelveKey="";S.eodhKey="";
     alert("All caches and keys cleared.");render();
   }},"\ud83d\uddd1 Clear All Cache"));
   var cacheInfo="";
