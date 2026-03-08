@@ -1183,6 +1183,7 @@ function getETFs(){var pool=ETFS;if(S.region!=="Worldwide")pool=pool.filter(func
 function h(tag,a,ch){var el=document.createElement(tag);if(a)Object.keys(a).forEach(function(k){if(k==="style"&&typeof a[k]==="object")Object.assign(el.style,a[k]);else if(k.indexOf("on")===0)el.addEventListener(k.slice(2).toLowerCase(),a[k]);else if(k==="className")el.className=a[k];else if(k==="innerHTML")el.innerHTML=a[k];else if(k==="selected"||k==="checked"||k==="disabled"){if(a[k])el[k]=true}else if(a[k]!=null)el.setAttribute(k,a[k])});if(ch!=null){if(typeof ch==="string"||typeof ch==="number")el.textContent=ch;else if(Array.isArray(ch))ch.forEach(function(c){if(c)el.appendChild(c)});else el.appendChild(ch)}return el}
 function sBar(v,mx,col){var t=T();var o=h("div",{style:{width:"100%",height:"6px",borderRadius:"3px",background:t.border,overflow:"hidden"}});o.appendChild(h("div",{className:"bar-fill",style:{width:Math.min(100,v/mx*100)+"%",height:"100%",borderRadius:"3px",background:col||t.accent}}));return o}
 function bdg(txt,col){var t=T();var c=col||t.accent;return h("span",{style:{display:"inline-block",padding:"2px 8px",borderRadius:"10px",fontSize:"10px",fontWeight:"600",background:c+"22",color:c,border:"1px solid "+c+"33",letterSpacing:".3px"}},txt)}
+function coverageMeta(st){var c=+(st&&st.realFundCount||0);if(c>=6)return{label:"Coverage: High",short:"High",color:"#10b981",hint:c+" real fields"};if(c>=3)return{label:"Coverage: Medium",short:"Medium",color:"#f59e0b",hint:c+" real fields"};if(c>=1)return{label:"Coverage: Low",short:"Low",color:"#f97316",hint:c+" real fields"};return{label:"Coverage: Simulated",short:"Simulated",color:"#ef4444",hint:"0 real fields"}}
 function catCol(c){var t=T();if(c.indexOf("Mom")>=0)return"#a78bfa";if(c.indexOf("Val")>=0||c.indexOf("val")>=0)return t.buy;if(c.indexOf("Div")>=0)return"#f59e0b";if(c.indexOf("Emerg")>=0||c.indexOf("Brazil")>=0)return"#f97316";return t.accent}
 
 // ===================== EXECUTIVE SUMMARY GENERATOR =====================
@@ -1389,6 +1390,7 @@ function renderScreener(){
     var isHero=i===0;var isExpanded=S.expandedStock===st.t;
     var valScore=getValueScore(st.sc);var qualScore=getQualityScore(st.sc);var momScore=getMomentumScore(st.sc);var safeScore=getSafetyScore(st.sc);
     var valR=factorRating(valScore,[70,50,30]);var qualR=factorRating(qualScore,[80,65,45]);var momR=factorRating(momScore,[65,50,35]);var safeR=factorRating(safeScore,[70,50,30]);
+    var covMeta=coverageMeta(st);
     var card=h("div",{className:"stock-card v5-card-wash terminal-card fade-in"+(isHero?" hero-card":""),style:{background:t.card,border:isExpanded?"1px solid "+t.accent:"1px solid "+t.border,boxShadow:isExpanded?"0 18px 40px rgba(8,145,178,0.18)":"0 8px 24px rgba(2,6,23,0.28)",animationDelay:(i*30)+"ms"},onClick:function(e){if(e.target.tagName==="BUTTON"||e.target.tagName==="SELECT")return;S.expandedStock=isExpanded?null:st.t;render()}});
     // Card header
     var header=h("div",{style:{display:"flex",alignItems:"flex-start",gap:"14px",justifyContent:"space-between"}});
@@ -1398,6 +1400,7 @@ function renderScreener(){
     var tickerEl=h("span",{className:"mono",style:{fontSize:isHero?"17px":"15px",fontWeight:"700",color:t.text,letterSpacing:".5px"}},st.co+" "+st.t);
     topRow.appendChild(tickerEl);
     if(st.live)topRow.appendChild(bdg("LIVE",t.buy));
+    topRow.appendChild(bdg(covMeta.label,covMeta.color));
     leftSide.appendChild(topRow);
     leftSide.appendChild(h("div",{style:{fontSize:"12px",color:t.ts,marginBottom:"6px"}},st.n));
     var badges=h("div",{style:{display:"flex",gap:"4px",flexWrap:"wrap"}});
@@ -1467,7 +1470,7 @@ function renderScreener(){
       }
       // Key metrics grid
       var metItems=[{l:"EY",v:st.sc.g.ey+"%"},{l:"ROIC",v:st.sc.g.roic+"%"},{l:"P/B",v:st.sc.t.pb},{l:"Moat",v:st.sc.m.moat+"/5"},
-       {l:"Mom",v:st.sc.s.mom},{l:"RSI",v:st.sc.s.rsi},{l:"F-Score",v:st.sc.p.fscore+"/9"},{l:"Z-Score",v:st.sc.a.z}];
+       {l:"Mom",v:st.sc.s.mom},{l:"RSI",v:st.sc.s.rsi},{l:"F-Score",v:st.sc.p.fscore+"/9"},{l:"Z-Score",v:st.sc.a.z},{l:"Coverage",v:covMeta.short+" · "+(st.realFundCount||0)}];
       // Add EODHD-specific metrics when available
       if(st.live&&st.live.beta!=null&&!isNaN(+st.live.beta))metItems.push({l:"Beta",v:(+st.live.beta).toFixed(2)});
       if(st.live&&st.live.ema50&&st.live.ema200){var trend=st.live.ema50>st.live.ema200?"\u2191 Bull":"\u2193 Bear";metItems.push({l:"EMA Trend",v:trend})}
