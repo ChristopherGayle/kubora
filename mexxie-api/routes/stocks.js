@@ -122,12 +122,12 @@ router.post('/import-etl', async (req, res) => {
     const existingSymbols = new Set(existingRes.ok ? existingRes.rows.map(r => r.ticker) : []);
 
     const etlSQL = `
-      SELECT s.symbol, s.name, s.sector, s.region, dp.close
-      FROM (SELECT symbol, name, sector, region FROM stocks LATEST ON update_time PARTITION BY symbol) s
+      SELECT s.symbol, s.name, s.sector, s.region, dp.close, s.market_cap_bn
+      FROM (SELECT symbol, name, sector, region, market_cap_bn FROM stocks LATEST ON update_time PARTITION BY symbol) s
       JOIN (SELECT symbol, close FROM daily_prices LATEST ON timestamp PARTITION BY symbol) dp
       ON s.symbol = dp.symbol
       WHERE dp.close > 1.0 AND s.region IN ('US', 'Europe', 'Asia', 'S. America', 'Africa')
-      ORDER BY s.region, dp.close DESC
+      ORDER BY s.region, COALESCE(s.market_cap_bn, 0) DESC, dp.close DESC
     `;
     const etlRes = await db.query(etlSQL);
     if (!etlRes.ok) return res.status(503).json({ error: 'ETL query failed: ' + etlRes.error });
@@ -142,7 +142,8 @@ router.post('/import-etl', async (req, res) => {
       const batch = newStocks.slice(i, i + 100);
       const values = batch.map(r => {
         const price = +(+r.close).toFixed(2);
-        return `(now(),'${db.esc(r.symbol)}','${db.esc(r.name)}','${mapSector(r.sector)}','${r.region}','${REGION_FLAGS[r.region]||'🌍'}',${price},0,true)`;
+        const marketCapBn = Number.isFinite(+r.market_cap_bn) ? +(+r.market_cap_bn).toFixed(3) : 0;
+        return `(now(),'${db.esc(r.symbol)}','${db.esc(r.name)}','${mapSector(r.sector)}','${r.region}','${REGION_FLAGS[r.region]||'🌍'}',${price},${marketCapBn},true)`;
       }).join(',');
       const result = await db.exec(`INSERT INTO prism_stock_universe (ts,ticker,name,sector,region,country_flag,price,market_cap_bn,active) VALUES ${values}`);
       if (result.ok) inserted += batch.length;
