@@ -722,6 +722,32 @@ async function refreshStoredFundamentalsFromProvider(){
   S.finvizTs=Date.now();persistFundData();
   return {imported:imported,total:ALL_STOCKS.length,missing:Math.max(0,ALL_STOCKS.length-imported)};
 }
+function u8ToB64(bytes){var bin="";bytes.forEach(function(b){bin+=String.fromCharCode(b)});return btoa(bin)}
+function b64ToU8(str){var bin=atob(str),out=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)out[i]=bin.charCodeAt(i);return out}
+async function deriveVaultKey(pass,salt){
+  var base=await crypto.subtle.importKey("raw",new TextEncoder().encode(pass),"PBKDF2",false,["deriveKey"]);
+  return crypto.subtle.deriveKey({name:"PBKDF2",salt:salt,iterations:210000,hash:"SHA-256"},base,{name:"AES-GCM",length:256},false,["encrypt","decrypt"]);
+}
+function currentKeyPayload(){
+  return {provider:S.provider||"eodhd",finnhubKey:S.finnhubKey||"",twelveKey:S.twelveKey||"",apiKey:S.apiKey||"",eodhKey:S.eodhKey||""};
+}
+function applyKeyPayload(payload){
+  if(payload.provider){S.provider=payload.provider;try{localStorage.setItem("mexxie_provider",S.provider)}catch(e){}}
+  S.finnhubKey=payload.finnhubKey||"";S.twelveKey=payload.twelveKey||"";S.apiKey=payload.apiKey||"";S.eodhKey=payload.eodhKey||"";
+  try{localStorage.setItem("mexxie_finnhub_key",S.finnhubKey);localStorage.setItem("mexxie_twelve_key",S.twelveKey);localStorage.setItem("mexxie_api_key",S.apiKey);localStorage.setItem("mexxie_eodh_key",S.eodhKey)}catch(e){}
+}
+async function encryptKeyVault(payload,pass){
+  var salt=crypto.getRandomValues(new Uint8Array(16));var iv=crypto.getRandomValues(new Uint8Array(12));
+  var key=await deriveVaultKey(pass,salt);
+  var enc=await crypto.subtle.encrypt({name:"AES-GCM",iv:iv},key,new TextEncoder().encode(JSON.stringify(payload)));
+  return {v:1,alg:"AES-GCM",kdf:"PBKDF2-SHA256",iterations:210000,salt:u8ToB64(salt),iv:u8ToB64(iv),ciphertext:u8ToB64(new Uint8Array(enc))};
+}
+async function decryptKeyVault(vault,pass){
+  var salt=b64ToU8(vault.salt),iv=b64ToU8(vault.iv),cipher=b64ToU8(vault.ciphertext);
+  var key=await deriveVaultKey(pass,salt);
+  var plain=await crypto.subtle.decrypt({name:"AES-GCM",iv:iv},key,cipher);
+  return JSON.parse(new TextDecoder().decode(plain));
+}
 
 async function fetchEODHDLive(){
   var key=S.eodhKey;if(!key){alert("Please enter your EODHD API key in Settings first.");S.tab="settings";render();return}
@@ -2209,6 +2235,30 @@ function renderSettings(){
   try{var c2=JSON.parse(localStorage.getItem(cacheKey));if(c2&&c2.ts){var age=Math.round((Date.now()-c2.ts)/3600000);cacheInfo=Object.keys(c2.data||{}).length+" ratios cached ("+age+"h ago)"}}catch(e){}
   cacheRow.appendChild(h("span",{style:{fontSize:"10px",color:t.tm}},cacheInfo||"No cache"));
   dc.appendChild(cacheRow);
+
+  var vaultCard=h("div",{style:{marginBottom:"14px",padding:"12px 14px",background:t.surface,border:"1px solid "+t.border,borderRadius:"10px"}});
+  vaultCard.appendChild(h("div",{style:{fontSize:"12px",fontWeight:"700",color:t.text,marginBottom:"4px"}},"🔐 Secure Key Vault"));
+  vaultCard.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,lineHeight:"1.5",marginBottom:"10px"}},"Export your current API keys to an encrypted vault file, then import them after a browser reset using only your passphrase."));
+  var vaultRow=h("div",{style:{display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap"}});
+  var vaultInput=h("input",{type:"file",accept:"application/json,.json",style:{display:"none"}});
+  var vaultStatus=h("span",{style:{fontSize:"10px",color:t.tm}},"No vault action yet.");
+  vaultInput.onchange=function(e){
+    var file=e.target.files&&e.target.files[0];if(!file)return;
+    var pass=prompt("Enter your vault passphrase");
+    if(!pass){vaultInput.value="";return;}
+    file.text().then(function(raw){return decryptKeyVault(JSON.parse(raw),pass)}).then(function(payload){
+      applyKeyPayload(payload);vaultStatus.textContent="✅ Vault imported. Keys restored locally.";vaultStatus.style.color=t.buy;vaultInput.value="";render();
+    }).catch(function(err){vaultStatus.textContent="❌ Vault import failed: "+(err&&err.message?err.message:"wrong passphrase or invalid file");vaultStatus.style.color=t.sell;vaultInput.value="";});
+  };
+  vaultRow.appendChild(h("button",{style:{padding:"6px 12px",borderRadius:"8px",border:"1px solid "+t.accent+"66",background:t.accentGlow,color:t.accent,fontSize:"11px",fontWeight:"600",fontFamily:"inherit"},onClick:async function(){
+    var pass1=prompt("Create a vault passphrase");if(!pass1)return;var pass2=prompt("Re-enter the vault passphrase");if(pass1!==pass2){vaultStatus.textContent="❌ Passphrases did not match.";vaultStatus.style.color=t.sell;return;}
+    try{var vault=await encryptKeyVault(currentKeyPayload(),pass1);var blob=new Blob([JSON.stringify(vault,null,2)],{type:"application/json"});var url=URL.createObjectURL(blob);var a=document.createElement("a");a.href=url;a.download="mexxie-key-vault.json";a.click();URL.revokeObjectURL(url);vaultStatus.textContent="✅ Encrypted vault downloaded.";vaultStatus.style.color=t.buy;}catch(err){vaultStatus.textContent="❌ Vault export failed.";vaultStatus.style.color=t.sell;}
+  }},"Export Encrypted Vault"));
+  vaultRow.appendChild(h("button",{style:{padding:"6px 12px",borderRadius:"8px",border:"1px solid "+t.border,background:t.card,color:t.text,fontSize:"11px",fontWeight:"600",fontFamily:"inherit"},onClick:function(){vaultInput.click();}},"Import Vault"));
+  vaultRow.appendChild(vaultStatus);
+  vaultCard.appendChild(vaultInput);
+  vaultCard.appendChild(vaultRow);
+  dc.appendChild(vaultCard);
 
   if(S.refreshCount>0){
     var stats=h("div",{style:{marginTop:"10px",padding:"8px 12px",background:t.surface,borderRadius:"6px",fontSize:"11px",color:t.ts}});
