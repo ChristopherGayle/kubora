@@ -1035,6 +1035,7 @@ var S={
   loading:false,loadingMsg:"",lastSource:"Simulated",lastCalls:0,lastErrors:[],
   expandedStock:null,
   capSize:(function(){try{return localStorage.getItem("mexxie_cap_size")||"all"}catch(e){return"all"}})(),
+  coverageFilter:(function(){try{return localStorage.getItem("mexxie_coverage_filter")||"all"}catch(e){return"all"}})(),
   prior:[
     {t:"MSFT",n:"Microsoft Corp.",co:"\uD83C\uDDFA\uD83C\uDDF8",date:"2025-09-15",entry:398.2,curr:445.2,act:null},
     {t:"NOVO-B",n:"Novo Nordisk A/S",co:"\uD83C\uDDE9\uD83C\uDDF0",date:"2025-08-10",entry:620.4,curr:685.3,act:null},
@@ -1163,6 +1164,7 @@ function getRanked(){
     var finalComp=Math.min(100,(+baseComp+bonus)*confidenceMult).toFixed(1);
     return{t:st.t,n:st.n,s:st.s,p:st.p,mc:st.mc,r:st.r,co:st.co,sc:sc,comp:finalComp,live:st.live||false,consensus:cats,realFundCount:cov.count};
   });
+  if(S.coverageFilter&&S.coverageFilter!=="all")arr=arr.filter(function(st){return coverageMeta(st).key===S.coverageFilter});
   arr.sort(function(a,b){return b.comp-a.comp});
   // Sector diversification: penalize 4th+ stock from same sector
   var top=arr.slice(0,S.numPicks+5);
@@ -1183,7 +1185,7 @@ function getETFs(){var pool=ETFS;if(S.region!=="Worldwide")pool=pool.filter(func
 function h(tag,a,ch){var el=document.createElement(tag);if(a)Object.keys(a).forEach(function(k){if(k==="style"&&typeof a[k]==="object")Object.assign(el.style,a[k]);else if(k.indexOf("on")===0)el.addEventListener(k.slice(2).toLowerCase(),a[k]);else if(k==="className")el.className=a[k];else if(k==="innerHTML")el.innerHTML=a[k];else if(k==="selected"||k==="checked"||k==="disabled"){if(a[k])el[k]=true}else if(a[k]!=null)el.setAttribute(k,a[k])});if(ch!=null){if(typeof ch==="string"||typeof ch==="number")el.textContent=ch;else if(Array.isArray(ch))ch.forEach(function(c){if(c)el.appendChild(c)});else el.appendChild(ch)}return el}
 function sBar(v,mx,col){var t=T();var o=h("div",{style:{width:"100%",height:"6px",borderRadius:"3px",background:t.border,overflow:"hidden"}});o.appendChild(h("div",{className:"bar-fill",style:{width:Math.min(100,v/mx*100)+"%",height:"100%",borderRadius:"3px",background:col||t.accent}}));return o}
 function bdg(txt,col){var t=T();var c=col||t.accent;return h("span",{style:{display:"inline-block",padding:"2px 8px",borderRadius:"10px",fontSize:"10px",fontWeight:"600",background:c+"22",color:c,border:"1px solid "+c+"33",letterSpacing:".3px"}},txt)}
-function coverageMeta(st){var c=+(st&&st.realFundCount||0);if(c>=6)return{label:"Coverage: High",short:"High",color:"#10b981",hint:c+" real fields"};if(c>=3)return{label:"Coverage: Medium",short:"Medium",color:"#f59e0b",hint:c+" real fields"};if(c>=1)return{label:"Coverage: Low",short:"Low",color:"#f97316",hint:c+" real fields"};return{label:"Coverage: Simulated",short:"Simulated",color:"#ef4444",hint:"0 real fields"}}
+function coverageMeta(st){var c=+(st&&st.realFundCount||0);if(c>=6)return{key:"high",label:"Coverage: High",short:"High",color:"#10b981",hint:c+" real fields"};if(c>=3)return{key:"medium",label:"Coverage: Medium",short:"Medium",color:"#f59e0b",hint:c+" real fields"};if(c>=1)return{key:"low",label:"Coverage: Low",short:"Low",color:"#f97316",hint:c+" real fields"};return{key:"simulated",label:"Coverage: Simulated",short:"Simulated",color:"#ef4444",hint:"0 real fields"}}
 function catCol(c){var t=T();if(c.indexOf("Mom")>=0)return"#a78bfa";if(c.indexOf("Val")>=0||c.indexOf("val")>=0)return t.buy;if(c.indexOf("Div")>=0)return"#f59e0b";if(c.indexOf("Emerg")>=0||c.indexOf("Brazil")>=0)return"#f97316";return t.accent}
 
 // ===================== EXECUTIVE SUMMARY GENERATOR =====================
@@ -1324,6 +1326,11 @@ function renderScreener(){
   var ss=h("select",{style:{fontSize:"13px"},onChange:function(e){S.sector=e.target.value;render()}});
   ss.appendChild(h("option",{value:"All"},"All"));SECTORS.forEach(function(s){ss.appendChild(h("option",{value:s},s))});ss.value=S.sector;
   sb.appendChild(ss);ct.appendChild(sb);
+  var covBox=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"10px",padding:"6px 12px",display:"flex",alignItems:"center",gap:"6px"}});
+  covBox.appendChild(h("span",{style:{fontSize:"10px",color:t.tm,textTransform:"uppercase",fontWeight:"600"}},"Coverage"));
+  var covSel=h("select",{style:{fontSize:"13px"},onChange:function(e){S.coverageFilter=e.target.value;try{localStorage.setItem("mexxie_coverage_filter",S.coverageFilter)}catch(x){}render()}});
+  [["all","All"],["high","High"],["medium","Medium"],["low","Low"],["simulated","Simulated"]].forEach(function(opt){covSel.appendChild(h("option",{value:opt[0]},opt[1]))});covSel.value=S.coverageFilter||"all";
+  covBox.appendChild(covSel);ct.appendChild(covBox);
   // Market cap tier filter pill bar
   var capTiers=[
     {k:"all",  l:"All",       sub:"Any size",           col:t.tm},
@@ -1359,7 +1366,7 @@ function renderScreener(){
   ct.appendChild(mrPills);
   var universeSize=ALL_STOCKS.length;
   var filteredSize=ranked.length;
-  var countLabel=filteredSize+" screened";
+  var countLabel=filteredSize+" screened";if((S.coverageFilter||"all")!=="all")countLabel+=" · "+(S.coverageFilter.charAt(0).toUpperCase()+S.coverageFilter.slice(1))+" coverage";
   if(universeSize>filteredSize)countLabel+="\u00B7"+universeSize.toLocaleString()+" universe";
   ct.appendChild(h("div",{style:{marginLeft:"auto",fontSize:"11px",color:t.tm}},countLabel+"\u00B7"+S.region));
   // CSV export button
@@ -1384,6 +1391,15 @@ function renderScreener(){
         "\u2139\uFE0F "+(S.capFilterFallbackMsg||"Using price proxy due to missing market cap data.")));
     }
   }
+  var coverageUniverse=ranked.reduce(function(acc,st){var k=coverageMeta(st).key;acc[k]=(acc[k]||0)+1;return acc;},{high:0,medium:0,low:0,simulated:0});
+  var covSummary=h("div",{style:{display:"flex",gap:"8px",flexWrap:"wrap",margin:"0 0 12px"}});
+  [["high","High","#10b981"],["medium","Medium","#f59e0b"],["low","Low","#f97316"],["simulated","Simulated","#ef4444"]].forEach(function(row){
+    covSummary.appendChild(h("div",{style:{padding:"8px 10px",borderRadius:"10px",border:"1px solid "+row[2]+"33",background:row[2]+"14",fontSize:"11px",color:t.text,minWidth:"120px"}},[
+      h("div",{style:{fontSize:"9px",textTransform:"uppercase",letterSpacing:".08em",color:row[2],fontWeight:"700",marginBottom:"2px"}},row[1]),
+      h("div",{className:"mono",style:{fontSize:"14px",fontWeight:"700"}},String(coverageUniverse[row[0]]||0))
+    ]));
+  });
+  f.appendChild(covSummary);
   // Stock cards
   var grid=h("div",{className:"stock-cards"});
   top.forEach(function(st,i){
