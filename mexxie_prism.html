@@ -2238,7 +2238,7 @@ function renderSettings(){
 
   var vaultCard=h("div",{style:{marginBottom:"14px",padding:"12px 14px",background:t.surface,border:"1px solid "+t.border,borderRadius:"10px"}});
   vaultCard.appendChild(h("div",{style:{fontSize:"12px",fontWeight:"700",color:t.text,marginBottom:"4px"}},"🔐 Secure Key Vault"));
-  vaultCard.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,lineHeight:"1.5",marginBottom:"10px"}},"Export your current API keys to an encrypted vault file, then import them after a browser reset using only your passphrase."));
+  vaultCard.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,lineHeight:"1.5",marginBottom:"10px"}},"Export your current API keys to an encrypted vault file, then import them after a browser reset using only your passphrase. Local macOS Keychain helpers are available in scripts/mexxie_keychain_store.sh and scripts/mexxie_keychain_to_vault.mjs."));
   var vaultRow=h("div",{style:{display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap"}});
   var vaultInput=h("input",{type:"file",accept:"application/json,.json",style:{display:"none"}});
   var vaultStatus=h("span",{style:{fontSize:"10px",color:t.tm}},"No vault action yet.");
