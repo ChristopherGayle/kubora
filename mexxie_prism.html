@@ -2258,6 +2258,21 @@ function renderSettings(){
   vaultRow.appendChild(vaultStatus);
   vaultCard.appendChild(vaultInput);
   vaultCard.appendChild(vaultRow);
+  var pasteWrap=h("div",{style:{marginTop:"10px"}});
+  pasteWrap.appendChild(h("label",{style:{fontSize:"10px",fontWeight:"700",letterSpacing:".04em",color:t.tm,display:"block",marginBottom:"6px"}},"PASTE ENCRYPTED VAULT JSON"));
+  var vaultText=h("textarea",{placeholder:'{"v":1,...}',style:{width:"100%",minHeight:"120px",padding:"10px 12px",borderRadius:"8px",border:"1px solid "+t.border,background:t.card,color:t.text,fontSize:"12px",lineHeight:"1.5",fontFamily:"'JetBrains Mono',monospace",resize:"vertical",outline:"none"}});
+  pasteWrap.appendChild(vaultText);
+  pasteWrap.appendChild(h("div",{style:{display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap",marginTop:"8px"}},[
+    h("button",{style:{padding:"6px 12px",borderRadius:"8px",border:"1px solid "+t.border,background:t.surface,color:t.text,fontSize:"11px",fontWeight:"600",fontFamily:"inherit"},onClick:function(){
+      var raw=(vaultText.value||"").trim();if(!raw){vaultStatus.textContent="⚠️ Paste vault JSON first.";vaultStatus.style.color="#f59e0b";return;}
+      var pass=prompt("Enter your vault passphrase");if(!pass)return;
+      Promise.resolve().then(function(){return decryptKeyVault(JSON.parse(raw),pass)}).then(function(payload){
+        applyKeyPayload(payload);vaultStatus.textContent="✅ Pasted vault imported. Keys restored locally.";vaultStatus.style.color=t.buy;vaultText.value="";render();
+      }).catch(function(err){vaultStatus.textContent="❌ Vault import failed: "+(err&&err.message?err.message:"wrong passphrase or invalid JSON");vaultStatus.style.color=t.sell;});
+    }},"Import Pasted Vault"),
+    h("span",{style:{fontSize:"10px",color:t.tm}},"Use this if the file picker is inconvenient.")
+  ]));
+  vaultCard.appendChild(pasteWrap);
   dc.appendChild(vaultCard);
 
   if(S.refreshCount>0){
