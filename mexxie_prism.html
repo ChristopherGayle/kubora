@@ -5,18 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#6366f1">
-<meta name="description" content="Mexxie Prism - Multi-factor global stock intelligence with executive summaries">
+<meta name="theme-color" content="#08111b">
+<meta name="description" content="Mexxie Ultimate v5 Terminal - Institutional global stock intelligence with dense ranking views">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<title>Mexxie Prism - Stock Intelligence</title>
+<title>Mexxie Ultimate v5 Terminal</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-text-size-adjust:100%}
-body{font-family:'DM Sans','Segoe UI',system-ui,-apple-system,sans-serif;line-height:1.5;overflow-x:hidden;transition:background .3s,color .3s}
+body{font-family:'DM Sans','Segoe UI',system-ui,-apple-system,sans-serif;line-height:1.5;overflow-x:hidden;transition:background .3s,color .3s;background-attachment:fixed;letter-spacing:.01em}
 input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:6px;border-radius:3px;outline:none;cursor:pointer}
 input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:50%;cursor:pointer}
 select{font-family:inherit;cursor:pointer}
@@ -24,10 +24,10 @@ button{font-family:inherit;cursor:pointer;-webkit-tap-highlight-color:transparen
 .mono{font-family:'JetBrains Mono',monospace}
 .hide-scroll::-webkit-scrollbar{display:none}
 .hide-scroll{-ms-overflow-style:none;scrollbar-width:none}
-.stock-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px}
+.stock-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
 .hero-card{grid-column:1/-1}
-.stock-card{border-radius:14px;padding:20px;transition:transform .2s,box-shadow .2s;cursor:pointer;position:relative;overflow:hidden}
-.stock-card:hover{transform:translateY(-2px)}
+.stock-card{border-radius:14px;padding:16px;transition:transform .18s,box-shadow .18s,border-color .18s;cursor:pointer;position:relative;overflow:hidden;backdrop-filter:blur(12px)}
+.stock-card:hover{transform:translateY(-3px)}
 .score-ring{width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative}
 .score-ring-inner{width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;position:absolute}
 .exec-summary{max-height:0;overflow:hidden;opacity:0;transition:max-height .4s cubic-bezier(.4,0,.2,1),opacity .3s ease,padding .3s ease}
@@ -44,7 +44,7 @@ button{font-family:inherit;cursor:pointer;-webkit-tap-highlight-color:transparen
 .weight-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
 .region-bar{display:flex;gap:0;border-radius:10px;overflow:hidden;border:1px solid var(--bdr)}
 .region-bar button{flex:1;padding:10px 6px;border:none;font-size:11px;font-weight:600;font-family:inherit;transition:all .2s;white-space:nowrap;letter-spacing:.3px}
-.metric-pill{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:8px;font-size:10px;font-weight:600}
+.metric-pill{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;font-size:10px;font-weight:600}
 @media(max-width:900px){
   .stock-cards{grid-template-columns:1fr 1fr}
   .hero-card{grid-column:1/-1}
@@ -65,18 +65,36 @@ button{font-family:inherit;cursor:pointer;-webkit-tap-highlight-color:transparen
 .fade-in{animation:fadeIn .3s ease-out both}
 .bar-fill{transition:width .5s cubic-bezier(.25,.8,.25,1)}
 .refresh-icon{display:inline-block;transition:transform .6s ease}
+.v5-shell{
+  background:
+    radial-gradient(circle at 12% 18%, rgba(40,199,111,0.12), transparent 22%),
+    radial-gradient(circle at 88% 12%, rgba(59,130,246,0.14), transparent 18%),
+    linear-gradient(180deg, #071018, #0a1521 48%, #08111b 100%);
+}
+.v5-card-wash::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  background:linear-gradient(180deg, rgba(148,163,184,0.08), transparent 28%, rgba(15,23,42,0.18));
+  pointer-events:none;
+}
+.terminal-shell .metric-pill{border:1px solid rgba(148,163,184,0.16);background:rgba(15,23,42,0.82)}
+.terminal-card{box-shadow:0 8px 24px rgba(2,6,23,0.28)}
+.terminal-card .mono{font-family:'JetBrains Mono',monospace;letter-spacing:.03em}
 </style>
 </head>
-<body>
+<body class="v5-shell terminal-shell">
 <div id="app">
   <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;color:#94a3b8;font-family:'DM Sans','Segoe UI',system-ui,sans-serif;text-align:center;max-width:520px;margin:0 auto">
-    <div style="font-size:16px;font-weight:600;color:#e2e8f0;margin-bottom:8px">Launching Mexxie Prism...</div>
-    <div style="font-size:13px;line-height:1.5">Loading data sources and rendering dashboard.</div>
+    <div style="font-size:16px;font-weight:600;color:#e2e8f0;margin-bottom:8px">Launching Mexxie Ultimate v5 Terminal...</div>
+    <div style="font-size:13px;line-height:1.5">Loading market matrix, provider coverage, and ranking engine.</div>
   </div>
 </div>
 <script>
 // ===================== THEMES =====================
 var THEMES={
+  exchange:{name:"Exchange Grid",bg:"#08111b",surface:"#0e1726",card:"rgba(9,16,27,0.82)",border:"#1f3147",accent:"#38bdf8",accentGlow:"rgba(56,189,248,0.16)",sell:"#f87171",sellGlow:"rgba(248,113,113,0.12)",buy:"#34d399",buyGlow:"rgba(52,211,153,0.12)",text:"#e5eef9",ts:"#9fb3c8",tm:"#5f7893",grad:"linear-gradient(135deg,#e5eef9,#38bdf8)",hg:"linear-gradient(180deg,rgba(8,17,27,0.98),rgba(11,22,36,0.96),rgba(8,17,27,0.98))",rt:"#1b2b40",rth:"#38bdf8"},
+  atelier:{name:"Atelier Ledger",bg:"#f6f0e4",surface:"#fbf7ef",card:"rgba(255,250,242,0.88)",border:"#d9ccb8",accent:"#b85c38",accentGlow:"rgba(184,92,56,0.12)",sell:"#b42318",sellGlow:"rgba(180,35,24,0.08)",buy:"#216e5c",buyGlow:"rgba(33,110,92,0.08)",text:"#1f2933",ts:"#5b6570",tm:"#8c7f70",grad:"linear-gradient(135deg,#1f2933,#b85c38)",hg:"linear-gradient(135deg,rgba(255,251,246,0.95),rgba(244,233,216,0.95),rgba(255,249,241,0.95))",rt:"#d6cab8",rth:"#b85c38"},
   obsidian:{name:"Obsidian Night",bg:"#0a0a0f",surface:"#12121a",card:"#1a1a25",border:"#2a2a3a",accent:"#6366f1",accentGlow:"rgba(99,102,241,0.15)",sell:"#ef4444",sellGlow:"rgba(239,68,68,0.12)",buy:"#22c55e",buyGlow:"rgba(34,197,94,0.12)",text:"#e2e8f0",ts:"#94a3b8",tm:"#64748b",grad:"linear-gradient(135deg,#6366f1,#8b5cf6)",hg:"linear-gradient(135deg,#0f0f1a,#1a1025,#0f0f1a)",rt:"#2a2a3a",rth:"#6366f1"},
   emerald:{name:"Emerald Terminal",bg:"#030f0a",surface:"#051a12",card:"#0a251a",border:"#1a4030",accent:"#10b981",accentGlow:"rgba(16,185,129,0.15)",sell:"#f87171",sellGlow:"rgba(248,113,113,0.12)",buy:"#34d399",buyGlow:"rgba(52,211,153,0.12)",text:"#d1fae5",ts:"#6ee7b7",tm:"#34d399",grad:"linear-gradient(135deg,#10b981,#059669)",hg:"linear-gradient(135deg,#030f0a,#051a12,#030f0a)",rt:"#1a4030",rth:"#10b981"},
   arctic:{name:"Arctic Frost",bg:"#f0f4f8",surface:"#ffffff",card:"#f8fafc",border:"#cbd5e1",accent:"#0284c7",accentGlow:"rgba(2,132,199,0.1)",sell:"#dc2626",sellGlow:"rgba(220,38,38,0.06)",buy:"#16a34a",buyGlow:"rgba(22,163,74,0.06)",text:"#0f172a",ts:"#475569",tm:"#94a3b8",grad:"linear-gradient(135deg,#0284c7,#0369a1)",hg:"linear-gradient(135deg,#e0f2fe,#f0f9ff,#e0f2fe)",rt:"#cbd5e1",rth:"#0284c7"},
@@ -667,6 +685,44 @@ function applyFinvizData(sc,ticker){
   if(fd.pe!=null&&fd.pe<=0){sc.a.z=Math.min(sc.a.z,2.5);sc.a.safe=false;sc.a.grey=sc.a.z>=1.81;sc.a.distress=sc.a.z<1.81;}
 }
 
+
+function persistFundData(){
+  try{
+    var compact={};Object.keys(S.finvizData||{}).forEach(function(tk){var d=S.finvizData[tk],c={};Object.keys(d||{}).forEach(function(k){if(d[k]!=null)c[k]=d[k]});if(Object.keys(c).length)compact[tk]=c;});
+    localStorage.setItem("mexxie_finviz_data",JSON.stringify(compact));
+    localStorage.setItem("mexxie_finviz_ts",String(S.finvizTs||Date.now()));
+  }catch(err){console.warn("localStorage full:",err.message)}
+}
+function realCoverage(st){
+  function nn(v){if(v==null||v==="")return null;var n=+v;return isNaN(n)?null:n}
+  var fd=S.finvizData[st.t]||{};var lv=st.live||{};
+  var pe=fd.pe!=null?nn(fd.pe):nn(lv.pe),pb=fd.pb!=null?nn(fd.pb):nn(lv.pb),roe=fd.roe!=null?nn(fd.roe):nn(lv.roe),fcf=nn(lv.fcfYield);
+  var roa=nn(fd.roa),nm=nn(fd.nm),om=nn(fd.om),de=fd.de!=null?nn(fd.de):nn(lv.debtEquity),cr=nn(fd.cr),eg=nn(fd.eg),sg=nn(fd.sg);
+  var metrics=[pe,pb,roe,fcf,roa,nm,om,de,cr,eg,sg].filter(function(v){return v!=null}).length;
+  return {count:metrics,value:(pe!=null||pb!=null||fcf!=null),profit:(roe!=null||roa!=null||nm!=null||om!=null),health:(de!=null||cr!=null),growth:(eg!=null||sg!=null)};
+}
+function liveToStoredFund(st){
+  function nn(v){if(v==null||v==="")return null;var n=+v;return isNaN(n)?null:n}
+  var lv=st.live||null;if(!lv)return null;
+  var out=Object.assign({},S.finvizData[st.t]||{});
+  if(lv.lossMarker)out.pe=-1;else if(nn(lv.pe)!=null)out.pe=nn(lv.pe);
+  if(nn(lv.pb)!=null)out.pb=Math.abs(nn(lv.pb));
+  if(nn(lv.roe)!=null)out.roe=nn(lv.roe)*100;
+  if(nn(lv.divYield)!=null)out.dy=nn(lv.divYield)*100;
+  if(nn(lv.fcfYield)!=null)out.fcf=nn(lv.fcfYield);
+  if(nn(lv.debtEquity)!=null)out.de=nn(lv.debtEquity);
+  out._src=S.lastSource||S.provider;
+  return Object.keys(out).length>1?out:null;
+}
+async function refreshStoredFundamentalsFromProvider(){
+  var hasKey=S.provider==="eodhd"?!!S.eodhKey:S.provider==="finnhub"?!!S.finnhubKey:!!S.apiKey;
+  if(!hasKey)throw new Error("Selected provider key missing in Settings.");
+  await fetchLive();
+  var imported=0;ALL_STOCKS.forEach(function(st){var d=liveToStoredFund(st);if(d){S.finvizData[st.t]=d;imported++;}});
+  S.finvizTs=Date.now();persistFundData();
+  return {imported:imported,total:ALL_STOCKS.length,missing:Math.max(0,ALL_STOCKS.length-imported)};
+}
+
 async function fetchEODHDLive(){
   var key=S.eodhKey;if(!key){alert("Please enter your EODHD API key in Settings first.");S.tab="settings";render();return}
   var callCount=0;var errors=[];
@@ -939,7 +995,7 @@ async function fetchMarketValuation(forceRefresh){
 }
 // ===================== STATE =====================
 var S={
-  theme:"obsidian",tab:"screener",region:"Worldwide",regime:"neutral",
+  theme:"exchange",tab:"screener",region:"Worldwide",regime:"neutral",
   marketVal:loadMVCache(),
   weights:{greenblatt:18,tweedy:9,munger:16,simons:13,piotroski:10,altman:5,rsi:2,evEbit:4,shYield:7,revGrowth:6,shortInt:1,druckenmiller:9},
   numPicks:8,sector:"All",dataSeed:42,lastRefresh:new Date(),refreshCount:0,
@@ -1022,22 +1078,32 @@ function getRanked(){
     }
     // Propagate FMP loss-marker (negative PE) into EY=0 so the guard below fires
     if(st.live&&st.live.lossMarker)sc.g.ey=0;
+    var cov=realCoverage(st);
     // Large-universe safeguard: if live/Finviz data exists for the universe but this ticker has none,
     // suppress simulated top-rank outcomes until real fundamentals are available.
     var hasFinviz=!!S.finvizData[st.t];
     var hasLiveFund=!!(st.live&&(numOrNull(st.live.pe)!=null||numOrNull(st.live.pb)!=null||numOrNull(st.live.roe)!=null||numOrNull(st.live.fcfYield)!=null));
     if(ALL_STOCKS.length>=1000&&hasRealFundCoverage&&!hasFinviz&&!hasLiveFund){
-      sc.g.ey=Math.min(sc.g.ey,2);
-      sc.g.roic=Math.min(sc.g.roic,6);
-      sc.m.qual=Math.min(sc.m.qual,35);
-      sc.m.moat=Math.min(sc.m.moat,2);
-      sc.p.fscore=Math.min(sc.p.fscore,3);
+      sc.g.ey=Math.min(sc.g.ey,1.5);
+      sc.g.roic=Math.min(sc.g.roic,5);
+      sc.m.qual=Math.min(sc.m.qual,28);
+      sc.m.moat=Math.min(sc.m.moat,1);
+      sc.p.fscore=Math.min(sc.p.fscore,2);
       sc.t.shY=Math.min(sc.t.shY,1);
       sc.g.evEbit=Math.max(sc.g.evEbit,25);
+      sc.m.revQ=Math.min(sc.m.revQ,1);
     }
     if(ALL_STOCKS.length>=1000){
       if(!st.s||st.s==="Unknown"){sc.m.qual=Math.min(sc.m.qual,35);sc.m.moat=Math.min(sc.m.moat,2);}
       if(!(st.mc>0)){sc.g.ey=Math.min(sc.g.ey,4);sc.p.fscore=Math.min(sc.p.fscore,4);}
+      if(hasRealFundCoverage){
+        if(cov.count===0){sc.g.roic=Math.min(sc.g.roic,5);sc.m.qual=Math.min(sc.m.qual,28);sc.m.moat=Math.min(sc.m.moat,1);sc.p.fscore=Math.min(sc.p.fscore,2);sc.a.z=Math.min(sc.a.z,2.3);sc.a.safe=false;sc.a.grey=sc.a.z>=1.81;sc.a.distress=sc.a.z<1.81;sc.m.revQ=Math.min(sc.m.revQ,1);}
+        else if(cov.count<=2){sc.g.roic=Math.min(sc.g.roic,9);sc.m.qual=Math.min(sc.m.qual,48);sc.m.moat=Math.min(sc.m.moat,2);sc.p.fscore=Math.min(sc.p.fscore,4);sc.m.revQ=Math.min(sc.m.revQ,2);}
+        if(!cov.value){sc.g.ey=Math.min(sc.g.ey,2);sc.g.evEbit=Math.max(sc.g.evEbit,22);}
+        if(!cov.profit){sc.g.roic=Math.min(sc.g.roic,8);sc.m.qual=Math.min(sc.m.qual,40);sc.m.moat=Math.min(sc.m.moat,2);}
+        if(!cov.health){sc.p.fscore=Math.min(sc.p.fscore,4);sc.a.z=Math.min(sc.a.z,2.6);sc.a.safe=false;sc.a.grey=sc.a.z>=1.81;sc.a.distress=sc.a.z<1.81;}
+        if(!cov.growth){sc.m.revQ=Math.min(sc.m.revQ,2);}
+      }
     }
     // Fundamental reality check: when live data confirms loss-making, cap simulated metrics
     // ey===0 occurs from: Finviz pe<=0, Finnhub pe<=0, FMP lossMarker — never from pure simulation (simulated ey always 5-25)
@@ -1066,9 +1132,10 @@ function getRanked(){
     if(+sc.s.mom>55&&+sc.s.rsi>=40&&+sc.s.rsi<=65)cats++;// tightened to match comp() ideal range
     if(sc.p.fscore>=6&&sc.a.z>2)cats++;
     if(+sc.t.shY>5)cats++;
-    var bonus=Math.max(0,(cats-2))*1.5;
-    var finalComp=Math.min(100,+baseComp+bonus).toFixed(1);
-    return{t:st.t,n:st.n,s:st.s,p:st.p,mc:st.mc,r:st.r,co:st.co,sc:sc,comp:finalComp,live:st.live||false,consensus:cats};
+    var bonus=cov.count>=3?Math.max(0,(cats-2))*1.5:0;
+    var confidenceMult=cov.count===0?0.58:cov.count===1?0.68:cov.count===2?0.78:cov.count===3?0.88:1;
+    var finalComp=Math.min(100,(+baseComp+bonus)*confidenceMult).toFixed(1);
+    return{t:st.t,n:st.n,s:st.s,p:st.p,mc:st.mc,r:st.r,co:st.co,sc:sc,comp:finalComp,live:st.live||false,consensus:cats,realFundCount:cov.count};
   });
   arr.sort(function(a,b){return b.comp-a.comp});
   // Sector diversification: penalize 4th+ stock from same sector
@@ -1175,11 +1242,11 @@ function renderHeader(){
   var inner=h("div",{style:{maxWidth:"1200px",margin:"0 auto",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:"10px"}});
   var left=h("div");
   var title=h("h1",{style:{margin:"0",fontSize:"20px",fontWeight:"800",fontFamily:"'Playfair Display','DM Sans',serif",background:t.grad,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",backgroundClip:"text",letterSpacing:".5px"}});
-  title.textContent="Mexxie Prism";
+  title.textContent="Mexxie Ultimate v5 Terminal";
   left.appendChild(title);
-  left.appendChild(h("p",{style:{margin:"2px 0 0",fontSize:"10px",color:t.tm,letterSpacing:"1.2px",textTransform:"uppercase"}},"Multi-Factor Global Stock Intelligence"));
+  left.appendChild(h("p",{style:{margin:"4px 0 0",fontSize:"10px",color:t.tm,letterSpacing:"2px",textTransform:"uppercase",fontFamily:"'JetBrains Mono',monospace"}},"Institutional ranking matrix across global equities"));
   inner.appendChild(left);
-  var tr=h("div",{style:{display:"flex",gap:"5px"}});
+  var tr=h("div",{style:{display:"flex",gap:"8px",padding:"8px 10px",border:"1px solid "+t.border,borderRadius:"12px",background:t.card,backdropFilter:"blur(12px)",boxShadow:"inset 0 1px 0 rgba(148,163,184,0.08)"}});
   Object.keys(THEMES).forEach(function(k){var tm=THEMES[k];tr.appendChild(h("button",{style:{width:"24px",height:"24px",borderRadius:"12px",border:S.theme===k?"2px solid "+tm.accent:"2px solid "+tm.border,background:tm.bg,padding:"0",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:S.theme===k?"0 0 8px "+tm.accent+"44":"none"},title:tm.name,onClick:function(){S.theme=k;render()}},h("div",{style:{width:"8px",height:"8px",borderRadius:"4px",background:tm.accent}})))});
   inner.appendChild(tr);hd.appendChild(inner);return hd;
 }
@@ -1188,29 +1255,29 @@ function renderHeader(){
 function renderTabs(){
   var t=T();
   var tabs=[{id:"screener",l:"\uD83D\uDCCA Screener"},{id:"etf",l:"\uD83D\uDCE6 ETFs"},{id:"prior",l:"\uD83D\uDCC8 History"},{id:"strategies",l:"\uD83C\uDFAF Strategies"},{id:"settings",l:"\u2699\uFE0F Settings"}];
-  var bar=h("div",{className:"hide-scroll",style:{background:t.surface,borderBottom:"1px solid "+t.border,padding:"0 20px",overflowX:"auto",whiteSpace:"nowrap"}});
-  var inner=h("div",{style:{maxWidth:"1200px",margin:"0 auto",display:"inline-flex"}});
-  tabs.forEach(function(tb){var a=S.tab===tb.id;inner.appendChild(h("button",{style:{padding:"12px 16px",border:"none",background:"transparent",color:a?t.accent:t.tm,fontWeight:a?"600":"400",fontSize:"13px",borderBottom:a?"2px solid "+t.accent:"2px solid transparent",transition:"all .2s",whiteSpace:"nowrap",fontFamily:"inherit"},onClick:function(){S.tab=tb.id;render()}},tb.l))});
+  var bar=h("div",{className:"hide-scroll",style:{background:t.surface,borderBottom:"1px solid "+t.border,padding:"10px 20px 0",overflowX:"auto",whiteSpace:"nowrap",backdropFilter:"blur(14px)"}});
+  var inner=h("div",{style:{maxWidth:"1200px",margin:"0 auto",display:"inline-flex",gap:"8px",paddingBottom:"10px"}});
+  tabs.forEach(function(tb){var a=S.tab===tb.id;inner.appendChild(h("button",{style:{padding:"11px 14px",border:a?"1px solid "+t.accent:"1px solid "+t.border,background:a?t.accentGlow:t.card,color:a?t.text:t.ts,fontWeight:a?"700":"600",fontSize:"12px",letterSpacing:".06em",textTransform:"uppercase",borderRadius:"10px",boxShadow:a?"0 12px 28px "+t.accent+"22":"none",transition:"all .2s",whiteSpace:"nowrap",fontFamily:"'JetBrains Mono',monospace"},onClick:function(){S.tab=tb.id;render()}},tb.l))});
   bar.appendChild(inner);return bar;
 }
 
 // ===================== RENDER REFRESH BAR =====================
 function renderRefreshBar(){
-  var t=T();var bar=h("div",{style:{background:t.surface,borderBottom:"1px solid "+t.border,padding:"8px 20px"}});
+  var t=T();var bar=h("div",{style:{background:t.surface,borderBottom:"1px solid "+t.border,padding:"10px 20px",boxShadow:"0 10px 24px "+t.accent+"11"}});
   var inner=h("div",{style:{maxWidth:"1200px",margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:"8px"}});
   var left=h("div",{style:{display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap"}});
   if(S.loading){left.appendChild(h("div",{style:{width:"8px",height:"8px",borderRadius:"4px",background:t.accent,animation:"pulse 1s infinite"}}));left.appendChild(h("span",{id:"loading-msg",style:{fontSize:"11px",color:t.accent,fontWeight:"600"}},S.loadingMsg||"Loading..."))}
-  else{var isLive=S.lastSource.indexOf("Live")>=0;var dotColor=isLive?t.buy:"#f59e0b";left.appendChild(h("div",{style:{width:"8px",height:"8px",borderRadius:"4px",background:dotColor}}));var stxt=h("div",{style:{fontSize:"11px",color:t.ts}});stxt.appendChild(h("span",{style:{fontWeight:"600",color:t.text}},fmtTime(S.lastRefresh)));stxt.appendChild(h("span",null," \u00B7 "+fmtDate(S.lastRefresh)));left.appendChild(stxt)}
+  else{var isLive=S.lastSource.indexOf("Live")>=0;var dotColor=isLive?t.buy:"#f59e0b";left.appendChild(h("div",{style:{width:"8px",height:"8px",borderRadius:"4px",background:dotColor}}));var stxt=h("div",{style:{fontSize:"11px",color:t.ts,fontFamily:"'JetBrains Mono',monospace",letterSpacing:".04em"}});stxt.appendChild(h("span",{style:{fontWeight:"600",color:t.text}},fmtTime(S.lastRefresh)));stxt.appendChild(h("span",null," \u00B7 "+fmtDate(S.lastRefresh)));left.appendChild(stxt)}
   inner.appendChild(left);
   var right=h("div",{style:{display:"flex",alignItems:"center",gap:"6px"}});
   var hasKey=S.provider==="eodhd"?S.eodhKey:S.provider==="finnhub"?S.finnhubKey:S.apiKey;
-  right.appendChild(h("button",{style:{display:"flex",alignItems:"center",gap:"5px",padding:"6px 12px",borderRadius:"8px",border:"1px solid "+t.buy+"66",background:hasKey?t.buyGlow:t.tm+"15",color:hasKey?t.buy:t.tm,fontSize:"11px",fontWeight:"600",fontFamily:"inherit",opacity:S.loading?"0.5":"1"},onClick:function(){
+  right.appendChild(h("button",{style:{display:"flex",alignItems:"center",gap:"6px",padding:"7px 12px",borderRadius:"10px",border:"1px solid "+t.buy+"66",background:hasKey?t.buyGlow:"rgba(15,23,42,0.85)",color:hasKey?t.buy:t.tm,fontSize:"11px",fontWeight:"700",fontFamily:"'JetBrains Mono',monospace",letterSpacing:".04em",opacity:S.loading?"0.5":"1"},onClick:function(){
     // Set loading=true immediately (before async call) to prevent double-click race condition
     if(S.loading)return;
     S.loading=true;render();fetchLive();
   }},"\u26A1 "+(hasKey?"Live Refresh":"Set API Key")));
-  right.appendChild(h("button",{style:{display:"flex",alignItems:"center",gap:"5px",padding:"6px 12px",borderRadius:"8px",border:"1px solid "+t.accent+"66",background:t.accentGlow,color:t.accent,fontSize:"11px",fontWeight:"600",fontFamily:"inherit",opacity:S.loading?"0.5":"1"},onClick:function(){if(!S.loading)refreshData();}},"\u21BB Simulate"));
-  right.appendChild(h("span",{style:{padding:"3px 8px",borderRadius:"6px",fontSize:"9px",fontWeight:"700",background:(S.lastSource.indexOf("Live")>=0?t.buy:t.tm)+"22",color:S.lastSource.indexOf("Live")>=0?t.buy:t.tm,textTransform:"uppercase"}},S.lastSource.indexOf("Live")>=0?"LIVE":"SIMULATED"));
+  right.appendChild(h("button",{style:{display:"flex",alignItems:"center",gap:"6px",padding:"7px 12px",borderRadius:"10px",border:"1px solid "+t.accent+"66",background:t.accentGlow,color:t.accent,fontSize:"11px",fontWeight:"700",fontFamily:"'JetBrains Mono',monospace",letterSpacing:".04em",opacity:S.loading?"0.5":"1"},onClick:function(){if(!S.loading)refreshData();}},"\u21BB Simulate"));
+  right.appendChild(h("span",{style:{padding:"5px 9px",borderRadius:"8px",fontSize:"9px",fontWeight:"700",background:(S.lastSource.indexOf("Live")>=0?t.buy:t.tm)+"22",color:S.lastSource.indexOf("Live")>=0?t.buy:t.tm,textTransform:"uppercase",fontFamily:"'JetBrains Mono',monospace",letterSpacing:".08em",border:"1px solid "+(S.lastSource.indexOf("Live")>=0?t.buy:t.tm)+"33"}},S.lastSource.indexOf("Live")>=0?"LIVE":"SIMULATED"));
   inner.appendChild(right);bar.appendChild(inner);return bar;
 }
 // ===================== SCREENER (NEW CARD LAYOUT) =====================
@@ -1296,7 +1363,7 @@ function renderScreener(){
     var isHero=i===0;var isExpanded=S.expandedStock===st.t;
     var valScore=getValueScore(st.sc);var qualScore=getQualityScore(st.sc);var momScore=getMomentumScore(st.sc);var safeScore=getSafetyScore(st.sc);
     var valR=factorRating(valScore,[70,50,30]);var qualR=factorRating(qualScore,[80,65,45]);var momR=factorRating(momScore,[65,50,35]);var safeR=factorRating(safeScore,[70,50,30]);
-    var card=h("div",{className:"stock-card fade-in"+(isHero?" hero-card":""),style:{background:t.card,border:isExpanded?"2px solid "+t.accent:"1px solid "+t.border,boxShadow:isExpanded?"0 4px 24px "+t.accent+"22":"0 2px 8px rgba(0,0,0,0.1)",animationDelay:(i*40)+"ms"},onClick:function(e){if(e.target.tagName==="BUTTON"||e.target.tagName==="SELECT")return;S.expandedStock=isExpanded?null:st.t;render()}});
+    var card=h("div",{className:"stock-card v5-card-wash terminal-card fade-in"+(isHero?" hero-card":""),style:{background:t.card,border:isExpanded?"1px solid "+t.accent:"1px solid "+t.border,boxShadow:isExpanded?"0 18px 40px rgba(8,145,178,0.18)":"0 8px 24px rgba(2,6,23,0.28)",animationDelay:(i*30)+"ms"},onClick:function(e){if(e.target.tagName==="BUTTON"||e.target.tagName==="SELECT")return;S.expandedStock=isExpanded?null:st.t;render()}});
     // Card header
     var header=h("div",{style:{display:"flex",alignItems:"flex-start",gap:"14px",justifyContent:"space-between"}});
     var leftSide=h("div",{style:{flex:"1",minWidth:"0"}});
@@ -2017,96 +2084,51 @@ function renderSettings(){
   dc.appendChild(importSection);
 
   // ── Finviz Fundamental Data ──────────────────────────────────────────
-  var fvCount=Object.keys(S.finvizData).length;
+  var fvCount=Object.keys(S.finvizData).length;var fvUniverse=ALL_STOCKS.length;var fvMissing=Math.max(0,fvUniverse-fvCount);
   var fvSec=h("div",{style:{marginBottom:"18px",padding:"14px",background:t.surface,border:"1px solid "+(fvCount>0?t.buy+"44":t.border),borderRadius:"10px"}});
-  fvSec.appendChild(h("div",{style:{fontSize:"12px",fontWeight:"700",color:t.text,marginBottom:"2px"}},"📊 Finviz Fundamental Data · Free · Refresh Weekly"));
+  fvSec.appendChild(h("div",{style:{fontSize:"12px",fontWeight:"700",color:t.text,marginBottom:"2px"}},"📊 Fundamental Data Coverage · Refresh Weekly"));
   // Status bar — colour shifts amber at 3 days, red at 7 days
   var fvDaysAgo=S.finvizTs?Math.round((Date.now()-S.finvizTs)/86400000):null;
   var fvStatus,fvStatusColor;
   if(fvCount>0&&S.finvizTs){
     var fvAgeTag=fvDaysAgo>=7?" · ⚠️ Refresh recommended":fvDaysAgo>=3?" · ⏰ Getting stale":"";
-    fvStatus="✅ "+fvCount.toLocaleString()+" stocks · real PE, ROE, Piotroski active · imported "+fvDaysAgo+"d ago"+fvAgeTag;
+    fvStatus="✅ "+fvCount.toLocaleString()+" / "+fvUniverse.toLocaleString()+" stocks with stored real fundamentals · "+fvMissing.toLocaleString()+" unresolved · imported "+fvDaysAgo+"d ago"+fvAgeTag;
     fvStatusColor=fvDaysAgo>=7?t.sell:fvDaysAgo>=3?"#f59e0b":t.buy;  // red ≥7d, amber ≥3d, green
   }else{
-    fvStatus="⚡ Replaces all simulated fundamentals with real data for US stocks. Two clicks — no account needed.";
+    fvStatus="⚡ Use your selected provider stack to store real fundamentals weekly. Manual Finviz CSV import remains available for US-only enrichment.";
     fvStatusColor=t.ts;
   }
   fvSec.appendChild(h("div",{style:{fontSize:"11px",color:fvStatusColor,marginBottom:"12px",lineHeight:"1.5"}},fvStatus));
 
-  // ── Auto-Fetch via Yahoo Finance backend ──
+  // ── Provider-driven stored fundamentals refresh ──
   (function(){
-    var autoDiv=h("div",{style:{marginBottom:"12px",padding:"10px 12px",background:t.bg,border:"1px solid "+(API_AVAILABLE?t.accent+"55":t.border),borderRadius:"8px"}});
-    autoDiv.appendChild(h("div",{style:{fontSize:"10px",fontWeight:"700",color:API_AVAILABLE?t.accent:t.tm,letterSpacing:".5px",marginBottom:"4px"}},"🤖 AUTO-FETCH · GLOBAL (US + Europe + Asia + Africa)"));
-    autoDiv.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,marginBottom:"8px",lineHeight:"1.5"}},
-      API_AVAILABLE
-        ? "Backend fetches fundamentals from Finnhub automatically — no manual steps, covers all regions (US · Europe · Asia · Africa)."
-        : "⚠️ API not connected. Connect Railway API first to enable auto-fetch."));
+    var providerLabel=S.provider==="eodhd"?"EODHD + FMP + Twelve fallback":S.provider==="fmp"?"FMP":"Finnhub";
+    var autoDiv=h("div",{style:{marginBottom:"12px",padding:"10px 12px",background:t.bg,border:"1px solid "+t.accent+"55",borderRadius:"8px"}});
+    autoDiv.appendChild(h("div",{style:{fontSize:"10px",fontWeight:"700",color:t.accent,letterSpacing:".5px",marginBottom:"4px"}},"🤖 PROVIDER REFRESH · "+providerLabel.toUpperCase()));
+    autoDiv.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,marginBottom:"8px",lineHeight:"1.5"}},"Stores real fundamentals from the selected provider flow for weekly reuse. Best coverage comes from EODHD with FMP and Twelve fallback."));
     var autoStatus=h("div",{style:{fontSize:"10px",color:t.ts,minHeight:"14px",marginBottom:"6px"}});
     autoDiv.appendChild(autoStatus);
     var autoBtn=h("button",{style:{
       width:"100%",padding:"8px",borderRadius:"7px",border:"none",
-      background:API_AVAILABLE?t.accent:"#666",color:"#fff",fontSize:"11px",fontWeight:"700",
-      fontFamily:"inherit",cursor:API_AVAILABLE?"pointer":"default",opacity:API_AVAILABLE?"1":"0.5"
+      background:t.accent,color:"#fff",fontSize:"11px",fontWeight:"700",
+      fontFamily:"inherit",cursor:"pointer"
     },onClick:function(){
-      if(!API_AVAILABLE){autoStatus.textContent="API not connected — check Railway connection.";return;}
-      if(!S.finnhubKey){autoStatus.textContent="⚠️ Finnhub API key required — enter it in the provider settings above.";autoStatus.style.color="#f59e0b";return;}
       autoStatus.style.color="";
-      autoBtn.disabled=true;autoBtn.style.opacity="0.6";autoBtn.textContent="⏳ Fetching...";
-      // Skip tickers already in finvizData (unless data is >7 days old — then refresh all)
-      var dataAge=S.finvizTs?(Date.now()-S.finvizTs):Infinity;
-      var isStale=dataAge>7*24*3600*1000;
-      var allTickers=ALL_STOCKS.map(function(s){return s.t});
-      var tickers=isStale?allTickers:allTickers.filter(function(t){return!S.finvizData[t]});
-      if(tickers.length===0){autoStatus.textContent="✅ All stocks already have fresh data.";autoBtn.disabled=false;autoBtn.style.opacity="1";autoBtn.textContent="🤖 Auto-Fetch Fundamentals";return;}
-      var CHUNK=50;var merged={};var idx=0;var hitRateLimit=false;
-      function finishFetch(){
-        Object.assign(S.finvizData,merged);
-        S.finvizTs=Date.now();
-        var got=Object.keys(merged).length;
-        try{
-          var compact={};
-          Object.keys(S.finvizData).forEach(function(tk){
-            var d=S.finvizData[tk],c={};
-            Object.keys(d).forEach(function(k){if(d[k]!=null)c[k]=d[k];});
-            if(Object.keys(c).length)compact[tk]=c;
-          });
-          localStorage.setItem("mexxie_finviz_data",JSON.stringify(compact));
-          localStorage.setItem("mexxie_finviz_ts",String(S.finvizTs));
-        }catch(e){console.warn("localStorage full:",e.message);}
-        // Show a contextual completion message
-        if(hitRateLimit){
-          autoStatus.textContent="⚠️ Finnhub rate limit hit — "+got+"/"+tickers.length+" stocks fetched. Run again in 1 min.";
-          autoStatus.style.color="#f59e0b";
-        }else{
-          autoStatus.textContent="✅ Done — "+got+" stocks updated.";
-          autoStatus.style.color="";
-        }
-        autoBtn.disabled=false;autoBtn.style.opacity="1";autoBtn.textContent="🤖 Auto-Fetch Fundamentals";
+      autoBtn.disabled=true;autoBtn.style.opacity="0.6";autoBtn.textContent="⏳ Refreshing provider coverage...";
+      refreshStoredFundamentalsFromProvider().then(function(summary){
+        autoStatus.textContent="✅ Stored real fundamentals for "+summary.imported.toLocaleString()+" / "+summary.total.toLocaleString()+" stocks. "+summary.missing.toLocaleString()+" still unresolved.";
+        autoStatus.style.color=summary.missing>0?"#f59e0b":"";
         render();
-      }
-      function next(){
-        if(idx>=tickers.length||hitRateLimit){finishFetch();return;}
-        var chunk=tickers.slice(idx,idx+CHUNK);
-        autoStatus.textContent="Fetching "+(Math.min(idx+CHUNK,tickers.length))+"/"+tickers.length+"...";
-        fetch(API_BASE+"/fundamentals",{
-          method:"POST",
-          headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({tickers:chunk,token:S.finnhubKey}),
-          signal:AbortSignal.timeout(60000)
-        }).then(function(r){return r.json();}).then(function(d){
-          if(d.results)Object.keys(d.results).forEach(function(tk){if(d.results[tk])merged[tk]=d.results[tk];});
-          if(d.rateLimited){hitRateLimit=true;}  // Finnhub 429 — stop chunking, save what we have
-          idx+=CHUNK;next();
-        }).catch(function(e){
-          console.warn("fundamentals fetch error:",e.message);
-          idx+=CHUNK;next();
-        });
-      }
-      next();
-    }},"🤖 Auto-Fetch Fundamentals");
+      }).catch(function(err){
+        autoStatus.textContent="⚠️ "+(err&&err.message?err.message:String(err||"Provider refresh failed."));
+        autoStatus.style.color="#f59e0b";
+      }).finally(function(){
+        autoBtn.disabled=false;autoBtn.style.opacity="1";autoBtn.textContent="🤖 Refresh Stored Fundamentals";
+      });
+    }},"🤖 Refresh Stored Fundamentals");
     autoDiv.appendChild(autoBtn);
     fvSec.appendChild(autoDiv);
-    fvSec.appendChild(h("div",{style:{textAlign:"center",fontSize:"10px",color:t.tm,marginBottom:"8px",opacity:"0.6"}},"\u2500\u2500\u2500 or import US stocks manually \u2500\u2500\u2500"));
+    fvSec.appendChild(h("div",{style:{textAlign:"center",fontSize:"10px",color:t.tm,marginBottom:"8px",opacity:"0.6"}},"─── optional: import Finviz CSV for extra US coverage ───"));
   })();
 
   // Step 1 + Step 2 in a row
@@ -2201,7 +2223,7 @@ function renderSettings(){
 function renderFooter(){
   var t=T();
   var ft=h("div",{style:{borderTop:"1px solid "+t.border,padding:"12px 16px",marginTop:"32px",textAlign:"center"}});
-  ft.appendChild(h("p",{style:{margin:"0",fontSize:"10px",color:t.tm,lineHeight:"1.6"}},"Mexxie Prism \u2014 Educational tool only, not investment advice. Past performance does not guarantee future results. Consult a qualified financial advisor."));
+  ft.appendChild(h("p",{style:{margin:"0",fontSize:"10px",color:t.tm,lineHeight:"1.6"}},"Mexxie Ultimate v5 Terminal \u2014 Educational tool only, not investment advice. Past performance does not guarantee future results. Consult a qualified financial advisor."));
   return ft;
 }
 
@@ -2232,7 +2254,7 @@ function renderFatalError(err){
   var app=document.getElementById("app");
   if(!app)return;
   var msg=err&&err.message?err.message:String(err||"Unknown error");
-  app.innerHTML="<div style='max-width:780px;margin:40px auto;padding:20px;border-radius:12px;border:1px solid #ef444488;background:#2a0f14;color:#fecaca;font-family:DM Sans,Segoe UI,sans-serif'><div style='font-size:18px;font-weight:700;margin-bottom:6px'>Mexxie Prism hit a startup error</div><div style='font-size:13px;line-height:1.6'>The app could not finish loading. Reload the page. If this persists, clear site data in browser settings.</div><div style='margin-top:12px;font-family:JetBrains Mono,monospace;font-size:12px;background:#12070a;padding:10px;border-radius:8px;word-break:break-word'>"+msg+"</div></div>";
+  app.innerHTML="<div style='max-width:780px;margin:40px auto;padding:20px;border-radius:12px;border:1px solid #ef444488;background:#2a0f14;color:#fecaca;font-family:DM Sans,Segoe UI,sans-serif'><div style='font-size:18px;font-weight:700;margin-bottom:6px'>Mexxie Ultimate v5 Terminal hit a startup error</div><div style='font-size:13px;line-height:1.6'>The app could not finish loading. Reload the page. If this persists, clear site data in browser settings.</div><div style='margin-top:12px;font-family:JetBrains Mono,monospace;font-size:12px;background:#12070a;padding:10px;border-radius:8px;word-break:break-word'>"+msg+"</div></div>";
 }
 
 // ===== ASYNC STARTUP =====

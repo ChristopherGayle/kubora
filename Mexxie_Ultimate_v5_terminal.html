@@ -685,6 +685,44 @@ function applyFinvizData(sc,ticker){
   if(fd.pe!=null&&fd.pe<=0){sc.a.z=Math.min(sc.a.z,2.5);sc.a.safe=false;sc.a.grey=sc.a.z>=1.81;sc.a.distress=sc.a.z<1.81;}
 }
 
+
+function persistFundData(){
+  try{
+    var compact={};Object.keys(S.finvizData||{}).forEach(function(tk){var d=S.finvizData[tk],c={};Object.keys(d||{}).forEach(function(k){if(d[k]!=null)c[k]=d[k]});if(Object.keys(c).length)compact[tk]=c;});
+    localStorage.setItem("mexxie_finviz_data",JSON.stringify(compact));
+    localStorage.setItem("mexxie_finviz_ts",String(S.finvizTs||Date.now()));
+  }catch(err){console.warn("localStorage full:",err.message)}
+}
+function realCoverage(st){
+  function nn(v){if(v==null||v==="")return null;var n=+v;return isNaN(n)?null:n}
+  var fd=S.finvizData[st.t]||{};var lv=st.live||{};
+  var pe=fd.pe!=null?nn(fd.pe):nn(lv.pe),pb=fd.pb!=null?nn(fd.pb):nn(lv.pb),roe=fd.roe!=null?nn(fd.roe):nn(lv.roe),fcf=nn(lv.fcfYield);
+  var roa=nn(fd.roa),nm=nn(fd.nm),om=nn(fd.om),de=fd.de!=null?nn(fd.de):nn(lv.debtEquity),cr=nn(fd.cr),eg=nn(fd.eg),sg=nn(fd.sg);
+  var metrics=[pe,pb,roe,fcf,roa,nm,om,de,cr,eg,sg].filter(function(v){return v!=null}).length;
+  return {count:metrics,value:(pe!=null||pb!=null||fcf!=null),profit:(roe!=null||roa!=null||nm!=null||om!=null),health:(de!=null||cr!=null),growth:(eg!=null||sg!=null)};
+}
+function liveToStoredFund(st){
+  function nn(v){if(v==null||v==="")return null;var n=+v;return isNaN(n)?null:n}
+  var lv=st.live||null;if(!lv)return null;
+  var out=Object.assign({},S.finvizData[st.t]||{});
+  if(lv.lossMarker)out.pe=-1;else if(nn(lv.pe)!=null)out.pe=nn(lv.pe);
+  if(nn(lv.pb)!=null)out.pb=Math.abs(nn(lv.pb));
+  if(nn(lv.roe)!=null)out.roe=nn(lv.roe)*100;
+  if(nn(lv.divYield)!=null)out.dy=nn(lv.divYield)*100;
+  if(nn(lv.fcfYield)!=null)out.fcf=nn(lv.fcfYield);
+  if(nn(lv.debtEquity)!=null)out.de=nn(lv.debtEquity);
+  out._src=S.lastSource||S.provider;
+  return Object.keys(out).length>1?out:null;
+}
+async function refreshStoredFundamentalsFromProvider(){
+  var hasKey=S.provider==="eodhd"?!!S.eodhKey:S.provider==="finnhub"?!!S.finnhubKey:!!S.apiKey;
+  if(!hasKey)throw new Error("Selected provider key missing in Settings.");
+  await fetchLive();
+  var imported=0;ALL_STOCKS.forEach(function(st){var d=liveToStoredFund(st);if(d){S.finvizData[st.t]=d;imported++;}});
+  S.finvizTs=Date.now();persistFundData();
+  return {imported:imported,total:ALL_STOCKS.length,missing:Math.max(0,ALL_STOCKS.length-imported)};
+}
+
 async function fetchEODHDLive(){
   var key=S.eodhKey;if(!key){alert("Please enter your EODHD API key in Settings first.");S.tab="settings";render();return}
   var callCount=0;var errors=[];
@@ -1040,22 +1078,32 @@ function getRanked(){
     }
     // Propagate FMP loss-marker (negative PE) into EY=0 so the guard below fires
     if(st.live&&st.live.lossMarker)sc.g.ey=0;
+    var cov=realCoverage(st);
     // Large-universe safeguard: if live/Finviz data exists for the universe but this ticker has none,
     // suppress simulated top-rank outcomes until real fundamentals are available.
     var hasFinviz=!!S.finvizData[st.t];
     var hasLiveFund=!!(st.live&&(numOrNull(st.live.pe)!=null||numOrNull(st.live.pb)!=null||numOrNull(st.live.roe)!=null||numOrNull(st.live.fcfYield)!=null));
     if(ALL_STOCKS.length>=1000&&hasRealFundCoverage&&!hasFinviz&&!hasLiveFund){
-      sc.g.ey=Math.min(sc.g.ey,2);
-      sc.g.roic=Math.min(sc.g.roic,6);
-      sc.m.qual=Math.min(sc.m.qual,35);
-      sc.m.moat=Math.min(sc.m.moat,2);
-      sc.p.fscore=Math.min(sc.p.fscore,3);
+      sc.g.ey=Math.min(sc.g.ey,1.5);
+      sc.g.roic=Math.min(sc.g.roic,5);
+      sc.m.qual=Math.min(sc.m.qual,28);
+      sc.m.moat=Math.min(sc.m.moat,1);
+      sc.p.fscore=Math.min(sc.p.fscore,2);
       sc.t.shY=Math.min(sc.t.shY,1);
       sc.g.evEbit=Math.max(sc.g.evEbit,25);
+      sc.m.revQ=Math.min(sc.m.revQ,1);
     }
     if(ALL_STOCKS.length>=1000){
       if(!st.s||st.s==="Unknown"){sc.m.qual=Math.min(sc.m.qual,35);sc.m.moat=Math.min(sc.m.moat,2);}
       if(!(st.mc>0)){sc.g.ey=Math.min(sc.g.ey,4);sc.p.fscore=Math.min(sc.p.fscore,4);}
+      if(hasRealFundCoverage){
+        if(cov.count===0){sc.g.roic=Math.min(sc.g.roic,5);sc.m.qual=Math.min(sc.m.qual,28);sc.m.moat=Math.min(sc.m.moat,1);sc.p.fscore=Math.min(sc.p.fscore,2);sc.a.z=Math.min(sc.a.z,2.3);sc.a.safe=false;sc.a.grey=sc.a.z>=1.81;sc.a.distress=sc.a.z<1.81;sc.m.revQ=Math.min(sc.m.revQ,1);}
+        else if(cov.count<=2){sc.g.roic=Math.min(sc.g.roic,9);sc.m.qual=Math.min(sc.m.qual,48);sc.m.moat=Math.min(sc.m.moat,2);sc.p.fscore=Math.min(sc.p.fscore,4);sc.m.revQ=Math.min(sc.m.revQ,2);}
+        if(!cov.value){sc.g.ey=Math.min(sc.g.ey,2);sc.g.evEbit=Math.max(sc.g.evEbit,22);}
+        if(!cov.profit){sc.g.roic=Math.min(sc.g.roic,8);sc.m.qual=Math.min(sc.m.qual,40);sc.m.moat=Math.min(sc.m.moat,2);}
+        if(!cov.health){sc.p.fscore=Math.min(sc.p.fscore,4);sc.a.z=Math.min(sc.a.z,2.6);sc.a.safe=false;sc.a.grey=sc.a.z>=1.81;sc.a.distress=sc.a.z<1.81;}
+        if(!cov.growth){sc.m.revQ=Math.min(sc.m.revQ,2);}
+      }
     }
     // Fundamental reality check: when live data confirms loss-making, cap simulated metrics
     // ey===0 occurs from: Finviz pe<=0, Finnhub pe<=0, FMP lossMarker — never from pure simulation (simulated ey always 5-25)
@@ -1084,9 +1132,10 @@ function getRanked(){
     if(+sc.s.mom>55&&+sc.s.rsi>=40&&+sc.s.rsi<=65)cats++;// tightened to match comp() ideal range
     if(sc.p.fscore>=6&&sc.a.z>2)cats++;
     if(+sc.t.shY>5)cats++;
-    var bonus=Math.max(0,(cats-2))*1.5;
-    var finalComp=Math.min(100,+baseComp+bonus).toFixed(1);
-    return{t:st.t,n:st.n,s:st.s,p:st.p,mc:st.mc,r:st.r,co:st.co,sc:sc,comp:finalComp,live:st.live||false,consensus:cats};
+    var bonus=cov.count>=3?Math.max(0,(cats-2))*1.5:0;
+    var confidenceMult=cov.count===0?0.58:cov.count===1?0.68:cov.count===2?0.78:cov.count===3?0.88:1;
+    var finalComp=Math.min(100,(+baseComp+bonus)*confidenceMult).toFixed(1);
+    return{t:st.t,n:st.n,s:st.s,p:st.p,mc:st.mc,r:st.r,co:st.co,sc:sc,comp:finalComp,live:st.live||false,consensus:cats,realFundCount:cov.count};
   });
   arr.sort(function(a,b){return b.comp-a.comp});
   // Sector diversification: penalize 4th+ stock from same sector
@@ -1197,7 +1246,7 @@ function renderHeader(){
   left.appendChild(title);
   left.appendChild(h("p",{style:{margin:"4px 0 0",fontSize:"10px",color:t.tm,letterSpacing:"2px",textTransform:"uppercase",fontFamily:"'JetBrains Mono',monospace"}},"Institutional ranking matrix across global equities"));
   inner.appendChild(left);
-  var tr=h("div",{style:{display:"flex",gap:"8px",padding:"6px 10px",border:"1px solid "+t.border,borderRadius:"999px",background:"rgba(9,16,27,0.82)",backdropFilter:"blur(12px)",boxShadow:"inset 0 1px 0 rgba(148,163,184,0.08)"}});
+  var tr=h("div",{style:{display:"flex",gap:"8px",padding:"8px 10px",border:"1px solid "+t.border,borderRadius:"12px",background:t.card,backdropFilter:"blur(12px)",boxShadow:"inset 0 1px 0 rgba(148,163,184,0.08)"}});
   Object.keys(THEMES).forEach(function(k){var tm=THEMES[k];tr.appendChild(h("button",{style:{width:"24px",height:"24px",borderRadius:"12px",border:S.theme===k?"2px solid "+tm.accent:"2px solid "+tm.border,background:tm.bg,padding:"0",display:"flex",alignItems:"center",justifyContent:"center",boxShadow:S.theme===k?"0 0 8px "+tm.accent+"44":"none"},title:tm.name,onClick:function(){S.theme=k;render()}},h("div",{style:{width:"8px",height:"8px",borderRadius:"4px",background:tm.accent}})))});
   inner.appendChild(tr);hd.appendChild(inner);return hd;
 }
@@ -1206,15 +1255,15 @@ function renderHeader(){
 function renderTabs(){
   var t=T();
   var tabs=[{id:"screener",l:"\uD83D\uDCCA Screener"},{id:"etf",l:"\uD83D\uDCE6 ETFs"},{id:"prior",l:"\uD83D\uDCC8 History"},{id:"strategies",l:"\uD83C\uDFAF Strategies"},{id:"settings",l:"\u2699\uFE0F Settings"}];
-  var bar=h("div",{className:"hide-scroll",style:{background:"rgba(8,17,27,0.92)",borderBottom:"1px solid "+t.border,padding:"10px 20px 0",overflowX:"auto",whiteSpace:"nowrap",backdropFilter:"blur(14px)"}});
+  var bar=h("div",{className:"hide-scroll",style:{background:t.surface,borderBottom:"1px solid "+t.border,padding:"10px 20px 0",overflowX:"auto",whiteSpace:"nowrap",backdropFilter:"blur(14px)"}});
   var inner=h("div",{style:{maxWidth:"1200px",margin:"0 auto",display:"inline-flex",gap:"8px",paddingBottom:"10px"}});
-  tabs.forEach(function(tb){var a=S.tab===tb.id;inner.appendChild(h("button",{style:{padding:"11px 14px",border:a?"1px solid "+t.accent:"1px solid "+t.border,background:a?"linear-gradient(180deg, rgba(56,189,248,0.18), rgba(15,23,42,0.95))":"rgba(11,22,36,0.82)",color:a?t.text:t.ts,fontWeight:a?"700":"600",fontSize:"12px",letterSpacing:".06em",textTransform:"uppercase",borderRadius:"10px",boxShadow:a?"0 12px 28px rgba(8,145,178,0.18)":"none",transition:"all .2s",whiteSpace:"nowrap",fontFamily:"'JetBrains Mono',monospace"},onClick:function(){S.tab=tb.id;render()}},tb.l))});
+  tabs.forEach(function(tb){var a=S.tab===tb.id;inner.appendChild(h("button",{style:{padding:"11px 14px",border:a?"1px solid "+t.accent:"1px solid "+t.border,background:a?t.accentGlow:t.card,color:a?t.text:t.ts,fontWeight:a?"700":"600",fontSize:"12px",letterSpacing:".06em",textTransform:"uppercase",borderRadius:"10px",boxShadow:a?"0 12px 28px "+t.accent+"22":"none",transition:"all .2s",whiteSpace:"nowrap",fontFamily:"'JetBrains Mono',monospace"},onClick:function(){S.tab=tb.id;render()}},tb.l))});
   bar.appendChild(inner);return bar;
 }
 
 // ===================== RENDER REFRESH BAR =====================
 function renderRefreshBar(){
-  var t=T();var bar=h("div",{style:{background:"rgba(8,17,27,0.94)",borderBottom:"1px solid "+t.border,padding:"10px 20px",boxShadow:"0 14px 30px rgba(2,6,23,0.28)"}});
+  var t=T();var bar=h("div",{style:{background:t.surface,borderBottom:"1px solid "+t.border,padding:"10px 20px",boxShadow:"0 10px 24px "+t.accent+"11"}});
   var inner=h("div",{style:{maxWidth:"1200px",margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:"8px"}});
   var left=h("div",{style:{display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap"}});
   if(S.loading){left.appendChild(h("div",{style:{width:"8px",height:"8px",borderRadius:"4px",background:t.accent,animation:"pulse 1s infinite"}}));left.appendChild(h("span",{id:"loading-msg",style:{fontSize:"11px",color:t.accent,fontWeight:"600"}},S.loadingMsg||"Loading..."))}
@@ -2035,96 +2084,51 @@ function renderSettings(){
   dc.appendChild(importSection);
 
   // ── Finviz Fundamental Data ──────────────────────────────────────────
-  var fvCount=Object.keys(S.finvizData).length;
+  var fvCount=Object.keys(S.finvizData).length;var fvUniverse=ALL_STOCKS.length;var fvMissing=Math.max(0,fvUniverse-fvCount);
   var fvSec=h("div",{style:{marginBottom:"18px",padding:"14px",background:t.surface,border:"1px solid "+(fvCount>0?t.buy+"44":t.border),borderRadius:"10px"}});
-  fvSec.appendChild(h("div",{style:{fontSize:"12px",fontWeight:"700",color:t.text,marginBottom:"2px"}},"📊 Finviz Fundamental Data · Free · Refresh Weekly"));
+  fvSec.appendChild(h("div",{style:{fontSize:"12px",fontWeight:"700",color:t.text,marginBottom:"2px"}},"📊 Fundamental Data Coverage · Refresh Weekly"));
   // Status bar — colour shifts amber at 3 days, red at 7 days
   var fvDaysAgo=S.finvizTs?Math.round((Date.now()-S.finvizTs)/86400000):null;
   var fvStatus,fvStatusColor;
   if(fvCount>0&&S.finvizTs){
     var fvAgeTag=fvDaysAgo>=7?" · ⚠️ Refresh recommended":fvDaysAgo>=3?" · ⏰ Getting stale":"";
-    fvStatus="✅ "+fvCount.toLocaleString()+" stocks · real PE, ROE, Piotroski active · imported "+fvDaysAgo+"d ago"+fvAgeTag;
+    fvStatus="✅ "+fvCount.toLocaleString()+" / "+fvUniverse.toLocaleString()+" stocks with stored real fundamentals · "+fvMissing.toLocaleString()+" unresolved · imported "+fvDaysAgo+"d ago"+fvAgeTag;
     fvStatusColor=fvDaysAgo>=7?t.sell:fvDaysAgo>=3?"#f59e0b":t.buy;  // red ≥7d, amber ≥3d, green
   }else{
-    fvStatus="⚡ Replaces all simulated fundamentals with real data for US stocks. Two clicks — no account needed.";
+    fvStatus="⚡ Use your selected provider stack to store real fundamentals weekly. Manual Finviz CSV import remains available for US-only enrichment.";
     fvStatusColor=t.ts;
   }
   fvSec.appendChild(h("div",{style:{fontSize:"11px",color:fvStatusColor,marginBottom:"12px",lineHeight:"1.5"}},fvStatus));
 
-  // ── Auto-Fetch via Yahoo Finance backend ──
+  // ── Provider-driven stored fundamentals refresh ──
   (function(){
-    var autoDiv=h("div",{style:{marginBottom:"12px",padding:"10px 12px",background:t.bg,border:"1px solid "+(API_AVAILABLE?t.accent+"55":t.border),borderRadius:"8px"}});
-    autoDiv.appendChild(h("div",{style:{fontSize:"10px",fontWeight:"700",color:API_AVAILABLE?t.accent:t.tm,letterSpacing:".5px",marginBottom:"4px"}},"🤖 AUTO-FETCH · GLOBAL (US + Europe + Asia + Africa)"));
-    autoDiv.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,marginBottom:"8px",lineHeight:"1.5"}},
-      API_AVAILABLE
-        ? "Backend fetches fundamentals from Finnhub automatically — no manual steps, covers all regions (US · Europe · Asia · Africa)."
-        : "⚠️ API not connected. Connect Railway API first to enable auto-fetch."));
+    var providerLabel=S.provider==="eodhd"?"EODHD + FMP + Twelve fallback":S.provider==="fmp"?"FMP":"Finnhub";
+    var autoDiv=h("div",{style:{marginBottom:"12px",padding:"10px 12px",background:t.bg,border:"1px solid "+t.accent+"55",borderRadius:"8px"}});
+    autoDiv.appendChild(h("div",{style:{fontSize:"10px",fontWeight:"700",color:t.accent,letterSpacing:".5px",marginBottom:"4px"}},"🤖 PROVIDER REFRESH · "+providerLabel.toUpperCase()));
+    autoDiv.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,marginBottom:"8px",lineHeight:"1.5"}},"Stores real fundamentals from the selected provider flow for weekly reuse. Best coverage comes from EODHD with FMP and Twelve fallback."));
     var autoStatus=h("div",{style:{fontSize:"10px",color:t.ts,minHeight:"14px",marginBottom:"6px"}});
     autoDiv.appendChild(autoStatus);
     var autoBtn=h("button",{style:{
       width:"100%",padding:"8px",borderRadius:"7px",border:"none",
-      background:API_AVAILABLE?t.accent:"#666",color:"#fff",fontSize:"11px",fontWeight:"700",
-      fontFamily:"inherit",cursor:API_AVAILABLE?"pointer":"default",opacity:API_AVAILABLE?"1":"0.5"
+      background:t.accent,color:"#fff",fontSize:"11px",fontWeight:"700",
+      fontFamily:"inherit",cursor:"pointer"
     },onClick:function(){
-      if(!API_AVAILABLE){autoStatus.textContent="API not connected — check Railway connection.";return;}
-      if(!S.finnhubKey){autoStatus.textContent="⚠️ Finnhub API key required — enter it in the provider settings above.";autoStatus.style.color="#f59e0b";return;}
       autoStatus.style.color="";
-      autoBtn.disabled=true;autoBtn.style.opacity="0.6";autoBtn.textContent="⏳ Fetching...";
-      // Skip tickers already in finvizData (unless data is >7 days old — then refresh all)
-      var dataAge=S.finvizTs?(Date.now()-S.finvizTs):Infinity;
-      var isStale=dataAge>7*24*3600*1000;
-      var allTickers=ALL_STOCKS.map(function(s){return s.t});
-      var tickers=isStale?allTickers:allTickers.filter(function(t){return!S.finvizData[t]});
-      if(tickers.length===0){autoStatus.textContent="✅ All stocks already have fresh data.";autoBtn.disabled=false;autoBtn.style.opacity="1";autoBtn.textContent="🤖 Auto-Fetch Fundamentals";return;}
-      var CHUNK=50;var merged={};var idx=0;var hitRateLimit=false;
-      function finishFetch(){
-        Object.assign(S.finvizData,merged);
-        S.finvizTs=Date.now();
-        var got=Object.keys(merged).length;
-        try{
-          var compact={};
-          Object.keys(S.finvizData).forEach(function(tk){
-            var d=S.finvizData[tk],c={};
-            Object.keys(d).forEach(function(k){if(d[k]!=null)c[k]=d[k];});
-            if(Object.keys(c).length)compact[tk]=c;
-          });
-          localStorage.setItem("mexxie_finviz_data",JSON.stringify(compact));
-          localStorage.setItem("mexxie_finviz_ts",String(S.finvizTs));
-        }catch(e){console.warn("localStorage full:",e.message);}
-        // Show a contextual completion message
-        if(hitRateLimit){
-          autoStatus.textContent="⚠️ Finnhub rate limit hit — "+got+"/"+tickers.length+" stocks fetched. Run again in 1 min.";
-          autoStatus.style.color="#f59e0b";
-        }else{
-          autoStatus.textContent="✅ Done — "+got+" stocks updated.";
-          autoStatus.style.color="";
-        }
-        autoBtn.disabled=false;autoBtn.style.opacity="1";autoBtn.textContent="🤖 Auto-Fetch Fundamentals";
+      autoBtn.disabled=true;autoBtn.style.opacity="0.6";autoBtn.textContent="⏳ Refreshing provider coverage...";
+      refreshStoredFundamentalsFromProvider().then(function(summary){
+        autoStatus.textContent="✅ Stored real fundamentals for "+summary.imported.toLocaleString()+" / "+summary.total.toLocaleString()+" stocks. "+summary.missing.toLocaleString()+" still unresolved.";
+        autoStatus.style.color=summary.missing>0?"#f59e0b":"";
         render();
-      }
-      function next(){
-        if(idx>=tickers.length||hitRateLimit){finishFetch();return;}
-        var chunk=tickers.slice(idx,idx+CHUNK);
-        autoStatus.textContent="Fetching "+(Math.min(idx+CHUNK,tickers.length))+"/"+tickers.length+"...";
-        fetch(API_BASE+"/fundamentals",{
-          method:"POST",
-          headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({tickers:chunk,token:S.finnhubKey}),
-          signal:AbortSignal.timeout(60000)
-        }).then(function(r){return r.json();}).then(function(d){
-          if(d.results)Object.keys(d.results).forEach(function(tk){if(d.results[tk])merged[tk]=d.results[tk];});
-          if(d.rateLimited){hitRateLimit=true;}  // Finnhub 429 — stop chunking, save what we have
-          idx+=CHUNK;next();
-        }).catch(function(e){
-          console.warn("fundamentals fetch error:",e.message);
-          idx+=CHUNK;next();
-        });
-      }
-      next();
-    }},"🤖 Auto-Fetch Fundamentals");
+      }).catch(function(err){
+        autoStatus.textContent="⚠️ "+(err&&err.message?err.message:String(err||"Provider refresh failed."));
+        autoStatus.style.color="#f59e0b";
+      }).finally(function(){
+        autoBtn.disabled=false;autoBtn.style.opacity="1";autoBtn.textContent="🤖 Refresh Stored Fundamentals";
+      });
+    }},"🤖 Refresh Stored Fundamentals");
     autoDiv.appendChild(autoBtn);
     fvSec.appendChild(autoDiv);
-    fvSec.appendChild(h("div",{style:{textAlign:"center",fontSize:"10px",color:t.tm,marginBottom:"8px",opacity:"0.6"}},"\u2500\u2500\u2500 or import US stocks manually \u2500\u2500\u2500"));
+    fvSec.appendChild(h("div",{style:{textAlign:"center",fontSize:"10px",color:t.tm,marginBottom:"8px",opacity:"0.6"}},"─── optional: import Finviz CSV for extra US coverage ───"));
   })();
 
   // Step 1 + Step 2 in a row
