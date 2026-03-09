@@ -2158,6 +2158,20 @@ function renderSettings(){
   var buckets={};
   unresolved.forEach(function(st){var key=providerGapBucket(st);buckets[key]=(buckets[key]||0)+1});
   var gapRows=Object.keys(buckets).map(function(k){return {bucket:k,count:buckets[k]}}).sort(function(a,b){return b.count-a.count}).slice(0,10);
+  var gapHead=h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:"8px",flexWrap:"wrap",marginBottom:"6px"}});
+  gapHead.appendChild(h("div",{style:{fontSize:"10px",color:t.tm,lineHeight:"1.5"}},"Exports unresolved low/simulated names with bucket, coverage, and live-data hints for mapping cleanup."));
+  gapHead.appendChild(h("button",{style:{padding:"5px 10px",borderRadius:"8px",border:"1px solid "+t.border,background:t.card,color:t.text,fontSize:"10px",fontWeight:"700",fontFamily:"inherit",cursor:"pointer"},onClick:function(){
+    var header=["Ticker","Name","Region","Sector","GapBucket","Coverage","RealFieldCount","HasLiveQuote","HasLiveFund","HasStoredFund","ProviderMode","Price","MarketCap_B"];
+    var rows=unresolved.map(function(st){
+      var cov=coverageMeta(st);var hasStored=!!S.finvizData[st.t];
+      var hasLiveQuote=!!(st.live&&(st.p||st.live.change!=null||st.live.mom!=null||st.live.beta!=null));
+      var hasLiveFund=!!(st.live&&(st.live.pe!=null||st.live.pb!=null||st.live.roe!=null||st.live.fcfYield!=null||st.live.lossMarker));
+      return [st.t,'"'+String(st.n||'').replace(/"/g,"'")+'"',st.r,st.s,providerGapBucket(st),cov.short,(st.realFundCount||0),hasLiveQuote?"yes":"no",hasLiveFund?"yes":"no",hasStored?"yes":"no",S.provider,(st.p!=null?st.p:""),(st.mc!=null?st.mc:"")].join(",");
+    });
+    var csv=[header.join(",")].concat(rows).join("\n");
+    var blob=new Blob([csv],{type:"text/csv"});var url=URL.createObjectURL(blob);var a=document.createElement("a");a.href=url;a.download="mexxie-unresolved-tickers-"+new Date().toISOString().slice(0,10)+".csv";a.click();URL.revokeObjectURL(url);
+  }},"Export Unresolved CSV"));
+  gapCard.appendChild(gapHead);
   if(gapRows.length===0){
     gapCard.appendChild(h("div",{style:{fontSize:"11px",color:t.buy}},"No major low/simulated coverage hotspots detected."));
   }else{
@@ -2165,7 +2179,7 @@ function renderSettings(){
     ["Bucket","Low+Sim"].forEach(function(hd){gapGrid.appendChild(h("div",{style:{color:t.tm,fontWeight:"700",textTransform:"uppercase",letterSpacing:".06em"}},hd))});
     gapRows.forEach(function(row){gapGrid.appendChild(h("div",{style:{color:t.text,fontWeight:"600"}},row.bucket));gapGrid.appendChild(h("div",{className:"mono",style:{color:"#f59e0b",fontWeight:"700"}},String(row.count)))});
     gapCard.appendChild(gapGrid);
-    gapCard.appendChild(h("div",{style:{fontSize:"10px",color:t.tm,marginTop:"8px",lineHeight:"1.5"}},"These buckets contain the most low/simulated-coverage stocks. Use them to prioritize ticker-mapping and provider-gap cleanup."));
+    gapCard.appendChild(h("div",{style:{fontSize:"10px",color:t.tm,marginTop:"8px",lineHeight:"1.5"}},"These buckets contain the most low/simulated-coverage stocks. Use the export to fix ticker mappings and provider coverage systematically."));
   }
   dc.appendChild(gapCard);
   
