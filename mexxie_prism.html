@@ -712,6 +712,11 @@ async function fallbackFinnhubFundamentals(maxSymbols){
         if(fd.roe!=null)st.live.roe=fd.roe;
         if(fd.dy!=null)st.live.divYield=Math.min(0.25,fd.dy/100);
         if(fd.de!=null)st.live.debtEquity=fd.de;
+        if(fd.enterpriseValue!=null)st.live.enterpriseValue=fd.enterpriseValue;
+        if(fd.ebitPerShare!=null)st.live.ebitPerShare=fd.ebitPerShare;
+        if(fd.marketCap!=null)st.live.metricMarketCap=fd.marketCap;
+        var liveEvEbit=computeRealEvEbit(st);
+        if(liveEvEbit!=null)st.live.evEbit=liveEvEbit;
       }
       updated++;
     });
@@ -847,6 +852,7 @@ function parseFinvizCSV(text){
 }
 function applyFinvizData(sc,ticker){
   var fd=S.finvizData[normalizeTicker(ticker)];if(!fd)return;
+  if(fd.evEbit!=null&&fd.evEbit>0){sc.g.evEbit=+fd.evEbit;sc.g.hasRealEvEbit=true;}
   // Earnings yield from real PE
   if(fd.pe!=null){if(fd.pe>0)sc.g.ey=+Math.min(25,100/fd.pe).toFixed(1);else sc.g.ey=0;}
   // Finviz shows "-" (null) for PE when company is loss-making — detect via ROA or net margin
@@ -891,6 +897,18 @@ function applyFinvizData(sc,ticker){
 }
 
 
+function computeRealEvEbit(st){
+  function nn(v){if(v==null||v==="")return null;var n=+v;return isNaN(n)?null:n}
+  var lv=st&&st.live?st.live:{};
+  var ev=nn(lv.enterpriseValue),ebitPs=nn(lv.ebitPerShare),px=nn(st&&st.p),mcMetric=nn(lv.metricMarketCap);
+  if(!(ev>0)||!(ebitPs>0)||!(px>0)||!(mcMetric>0))return null;
+  var shares=mcMetric/px;
+  var ebit=ebitPs*shares;
+  if(!(ebit>0))return null;
+  var ratio=ev/ebit;
+  return isFinite(ratio)&&ratio>0?+ratio.toFixed(2):null;
+}
+
 function persistFundData(){
   try{
     var compact={};Object.keys(S.finvizData||{}).forEach(function(tk){var d=S.finvizData[tk],c={};Object.keys(d||{}).forEach(function(k){if(d[k]!=null)c[k]=d[k]});if(Object.keys(c).length)compact[tk]=c;});
@@ -901,10 +919,10 @@ function persistFundData(){
 function realCoverage(st){
   function nn(v){if(v==null||v==="")return null;var n=+v;return isNaN(n)?null:n}
   var fd=S.finvizData[normalizeTicker(st.t)]||{};var lv=st.live||{};
-  var pe=fd.pe!=null?nn(fd.pe):nn(lv.pe),pb=fd.pb!=null?nn(fd.pb):nn(lv.pb),roe=fd.roe!=null?nn(fd.roe):nn(lv.roe),fcf=nn(lv.fcfYield);
+  var pe=fd.pe!=null?nn(fd.pe):nn(lv.pe),pb=fd.pb!=null?nn(fd.pb):nn(lv.pb),roe=fd.roe!=null?nn(fd.roe):nn(lv.roe),fcf=nn(lv.fcfYield),evEbit=fd.evEbit!=null?nn(fd.evEbit):computeRealEvEbit(st);
   var roa=nn(fd.roa),nm=nn(fd.nm),om=nn(fd.om),de=fd.de!=null?nn(fd.de):nn(lv.debtEquity),cr=nn(fd.cr),eg=nn(fd.eg),sg=nn(fd.sg);
-  var metrics=[pe,pb,roe,fcf,roa,nm,om,de,cr,eg,sg].filter(function(v){return v!=null}).length;
-  return {count:metrics,value:(pe!=null||pb!=null||fcf!=null),profit:(roe!=null||roa!=null||nm!=null||om!=null),health:(de!=null||cr!=null),growth:(eg!=null||sg!=null)};
+  var metrics=[pe,pb,roe,fcf,evEbit,roa,nm,om,de,cr,eg,sg].filter(function(v){return v!=null}).length;
+  return {count:metrics,value:(pe!=null||pb!=null||fcf!=null||evEbit!=null),profit:(roe!=null||roa!=null||nm!=null||om!=null),health:(de!=null||cr!=null),growth:(eg!=null||sg!=null)};
 }
 function liveToStoredFund(st){
   function nn(v){if(v==null||v==="")return null;var n=+v;return isNaN(n)?null:n}
@@ -917,6 +935,7 @@ function liveToStoredFund(st){
   if(nn(lv.divYield)!=null)out.dy=nn(lv.divYield)*100;
   if(nn(lv.fcfYield)!=null)out.fcf=nn(lv.fcfYield);
   if(nn(lv.debtEquity)!=null)out.de=nn(lv.debtEquity);
+  var evEbit=computeRealEvEbit(st);if(evEbit!=null)out.evEbit=evEbit;
   out._src=S.lastSource||S.provider;
   return Object.keys(out).length>1?out:null;
 }
@@ -1182,10 +1201,10 @@ async function fetchFinnhubLive(){
     for(var b=0;b<quoteBatches.length;b++){var batch=quoteBatches[b];S.loadingMsg="Fetching quotes "+(b*5+1)+"-"+Math.min((b+1)*5,allToFetch.length)+"/"+allToFetch.length+"...";render();try{var results=await Promise.all(batch.map(function(ticker){return rateFetch(FINNHUB_BASE+"/quote?symbol="+encodeURIComponent(ticker)+"&token="+key)}));for(var r=0;r<results.length;r++){var data=results[r];var ticker=batch[r];if(data&&data.c&&data.c>0){quoteMap[ticker]={price:data.c,change:data.dp}}else if(data&&data.error){errors.push(ticker+": "+data.error)}}}catch(e){errors.push("Quote batch error: "+e.message)}}
     var stockTickersWithQuotes=[];ALL_STOCKS.forEach(function(s){var sym=fmpTicker(s.t);if(quoteMap[sym]&&quoteMap[sym].price)stockTickersWithQuotes.push(sym)});
     var tickersNeedingMetrics=stockTickersWithQuotes.filter(function(tk){return !metricsCache[tk]});
-    if(tickersNeedingMetrics.length>0){var metricBatches=batchArray(tickersNeedingMetrics,5);for(var i=0;i<metricBatches.length;i++){var mBatch=metricBatches[i];S.loadingMsg="Fetching fundamentals "+(i*5+1)+"-"+Math.min((i+1)*5,tickersNeedingMetrics.length)+"/"+tickersNeedingMetrics.length+"...";render();try{var mResults=await Promise.all(mBatch.map(function(tk){return rateFetch(FINNHUB_BASE+"/stock/metric?symbol="+encodeURIComponent(tk)+"&metric=all&token="+key)}));for(var j=0;j<mResults.length;j++){var md=mResults[j];var sym2=mBatch[j];if(md&&md.metric){var m=md.metric;metricsCache[sym2]={pe:m.peBasicExclExtraTTM||m.peNormalizedAnnual||null,pb:m.pbQuarterly||m.pbAnnual||null,roe:m.roeRfy||m.roeTTM||null,divYield:m.dividendYieldIndicatedAnnual||m.currentDividendYieldTTM||null,fcfYield:m.freeCashFlowPerShareTTM||null,debtEquity:m["totalDebt/totalEquityQuarterly"]||m["totalDebt/totalEquityAnnual"]||null,mc:m.marketCapitalization||null}}}}catch(e){}}}
+    if(tickersNeedingMetrics.length>0){var metricBatches=batchArray(tickersNeedingMetrics,5);for(var i=0;i<metricBatches.length;i++){var mBatch=metricBatches[i];S.loadingMsg="Fetching fundamentals "+(i*5+1)+"-"+Math.min((i+1)*5,tickersNeedingMetrics.length)+"/"+tickersNeedingMetrics.length+"...";render();try{var mResults=await Promise.all(mBatch.map(function(tk){return rateFetch(FINNHUB_BASE+"/stock/metric?symbol="+encodeURIComponent(tk)+"&metric=all&token="+key)}));for(var j=0;j<mResults.length;j++){var md=mResults[j];var sym2=mBatch[j];if(md&&md.metric){var m=md.metric;metricsCache[sym2]={pe:m.peBasicExclExtraTTM||m.peNormalizedAnnual||null,pb:m.pbQuarterly||m.pbAnnual||null,roe:m.roeRfy||m.roeTTM||null,divYield:m.dividendYieldIndicatedAnnual||m.currentDividendYieldTTM||null,fcfYield:m.freeCashFlowPerShareTTM||null,debtEquity:m["totalDebt/totalEquityQuarterly"]||m["totalDebt/totalEquityAnnual"]||null,mc:m.marketCapitalization||null,enterpriseValue:m.enterpriseValue||null,ebitPerShare:m.ebitPerShareTTM||m.ebitPerShareAnnual||null}}}}catch(e){}}}
     try{localStorage.setItem("mexxie_finnhub_cache",JSON.stringify({ts:Date.now(),data:metricsCache}))}catch(e){}
-    Object.keys(metricsCache).forEach(function(tk){if(!quoteMap[tk])quoteMap[tk]={};var cr=metricsCache[tk];if(cr){quoteMap[tk].pb=cr.pb;quoteMap[tk].pe=cr.pe;quoteMap[tk].divYield=cr.divYield;quoteMap[tk].fcfYield=cr.fcfYield;quoteMap[tk].debtEquity=cr.debtEquity;quoteMap[tk].roe=cr.roe;if(cr.mc)quoteMap[tk].mc=cr.mc}});
-    ALL_STOCKS.forEach(function(st){var sym=fmpTicker(st.t);var q=quoteMap[sym];if(q){if(q.price)st.p=+q.price.toFixed(2);if(q.mc)st.mc=+(q.mc/1000).toFixed(0);st.live={pb:q.pb,roe:q.roe,divYield:q.divYield,fcfYield:q.fcfYield,pe:q.pe,change:q.change,debtEquity:q.debtEquity}}});
+    Object.keys(metricsCache).forEach(function(tk){if(!quoteMap[tk])quoteMap[tk]={};var cr=metricsCache[tk];if(cr){quoteMap[tk].pb=cr.pb;quoteMap[tk].pe=cr.pe;quoteMap[tk].divYield=cr.divYield;quoteMap[tk].fcfYield=cr.fcfYield;quoteMap[tk].debtEquity=cr.debtEquity;quoteMap[tk].roe=cr.roe;if(cr.mc)quoteMap[tk].mc=cr.mc;if(cr.enterpriseValue)quoteMap[tk].enterpriseValue=cr.enterpriseValue;if(cr.ebitPerShare)quoteMap[tk].ebitPerShare=cr.ebitPerShare}});
+    ALL_STOCKS.forEach(function(st){var sym=fmpTicker(st.t);var q=quoteMap[sym];if(q){if(q.price)st.p=+q.price.toFixed(2);if(q.mc)st.mc=+(q.mc/1000).toFixed(0);st.live={pb:q.pb,roe:q.roe,divYield:q.divYield,fcfYield:q.fcfYield,pe:q.pe,change:q.change,debtEquity:q.debtEquity,enterpriseValue:q.enterpriseValue,ebitPerShare:q.ebitPerShare,metricMarketCap:q.mc};var liveEvEbit=computeRealEvEbit(st);if(liveEvEbit!=null)st.live.evEbit=liveEvEbit;}});
     ETFS.forEach(function(etf){var q=quoteMap[etf.t];if(q){if(q.change!=null)etf.mom=+q.change.toFixed(1);if(q.price)etf.lastPrice=q.price}});
     S.prior.forEach(function(pk){var sym=fmpTicker(pk.t);var q=quoteMap[sym];if(q&&q.price)pk.curr=+q.price.toFixed(2)});
     S.dataSeed=Math.floor(Math.random()*90000)+10000;S.lastRefresh=new Date();S.refreshCount=(S.refreshCount||0)+1;S.lastSource="Live · Finnhub";S.lastCalls=callCount;S.lastErrors=errors;S.lastProviderSummary="Finnhub quotes+fundamentals stored: "+Object.keys(quoteMap).length;S.lastProviderCounts={finnhubDirect:Object.keys(quoteMap).length};
@@ -1317,6 +1336,8 @@ function getRanked(){
       if(st.live.change!=null)sc.s.mom=+Math.min(100,Math.max(0,50+st.live.change*2)).toFixed(0);
       if(st.live.fcfYield!=null&&st.live.fcfYield>0)sc.t.fcf=+Math.min(14,st.live.fcfYield).toFixed(1);
       if(st.live.debtEquity!=null){sc.p.pf.dlev=st.live.debtEquity<1.5;sc.p.fscore=Object.values(sc.p.pf).filter(Boolean).length}
+      var realEvEbit=st.live.evEbit!=null?numOrNull(st.live.evEbit):computeRealEvEbit(st);
+      if(realEvEbit!=null&&realEvEbit>0){sc.g.evEbit=+realEvEbit.toFixed(2);sc.g.hasRealEvEbit=true;}
       // EODHD-specific: use EMA-derived momentum if available (more accurate than daily change)
       // Use >0 check — avoids ema200=0 being falsy and incorrectly skipping the calculation
       if(st.live.mom!=null&&st.live.ema200>0)sc.s.mom=+Math.min(100,Math.max(0,50+st.live.mom*0.5)).toFixed(0);

@@ -53,6 +53,9 @@ function mapMetrics(m) {
     sg:  safeNum(m.revenueGrowth5Y),                     // already in %
     io:  null,  // not available in free Finnhub tier
     si:  null,  // not available in free Finnhub tier
+    enterpriseValue: safeNum(m.enterpriseValue),
+    ebitPerShare: safeNum(m.ebitPerShareTTM || m.ebitPerShareAnnual),
+    marketCap: safeNum(m.marketCapitalization),
     _src: 'finnhub',
   };
 }
