@@ -1420,7 +1420,15 @@ function renderScreener(){
   var t=T();var f=document.createDocumentFragment();
   f.appendChild(regionBar());
   // Controls row
-  var ranked=getRanked();var top=ranked.slice(0,S.numPicks);
+  var ranked=getRanked();
+  var fallbackNotice="";
+  if(!ranked.length&&(S.strictCoverage||(S.coverageFilter&&S.coverageFilter!=="all"))){
+    S.strictCoverage=false;S.coverageFilter="all";
+    try{localStorage.setItem("mexxie_strict_coverage","0");localStorage.setItem("mexxie_coverage_filter","all")}catch(x){}
+    ranked=getRanked();
+    fallbackNotice="Coverage filters were reset to show available stocks.";
+  }
+  var top=ranked.slice(0,S.numPicks);
   var ct=h("div",{style:{display:"flex",gap:"10px",margin:"14px 0",flexWrap:"wrap",alignItems:"center"}});
   var pb=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"10px",padding:"6px 12px",display:"flex",alignItems:"center",gap:"6px"}});
   pb.appendChild(h("span",{style:{fontSize:"10px",color:t.tm,textTransform:"uppercase",fontWeight:"600"}},"Top"));
@@ -1486,6 +1494,9 @@ function renderScreener(){
     var a=document.createElement("a");a.href=url;a.download="mexxie-screen-"+new Date().toISOString().slice(0,10)+".csv";a.click();URL.revokeObjectURL(url);
   }},"📥 CSV"));
   f.appendChild(ct);
+  if(fallbackNotice){
+    f.appendChild(h("div",{style:{margin:"0 0 12px",padding:"10px 12px",borderRadius:"10px",background:t.surface,border:"1px solid "+t.border,fontSize:"11px",color:t.ts,lineHeight:"1.5"}},"⚠️ "+fallbackNotice));
+  }
   // Enhancement: warn when cap filter excludes stocks with unknown market cap
   if(S.capSize&&S.capSize!=="all"){
     var CAP_RANGES2={mega:{min:200,max:Infinity},large:{min:10,max:200},mid:{min:2,max:10},small:{min:0.25,max:2},micro:{min:0,max:0.25}};
