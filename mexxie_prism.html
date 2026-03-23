@@ -1198,7 +1198,7 @@ function getRanked(){
     // Propagate FMP loss-marker (negative PE) into EY=0 so the guard below fires
     if(st.live&&st.live.lossMarker)sc.g.ey=0;
     var cov=realCoverage(st);
-    if(cov.count<3)return null;
+    if(cov.count===0)return null;
     // Large-universe safeguard: if live/Finviz data exists for the universe but this ticker has none,
     // suppress simulated top-rank outcomes until real fundamentals are available.
     var hasFinviz=!!S.finvizData[normalizeTicker(st.t)];
