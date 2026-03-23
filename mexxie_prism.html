@@ -165,6 +165,37 @@ function normalizeMarketCap(raw){
   if(n>1000000&&n<=1000000000)return +(n/1000).toFixed(0);
   return +n.toFixed(0);
 }
+function normalizeNumber(raw){
+  if(raw==null||raw==="")return null;
+  var n=+raw;
+  return isFinite(n)?n:null;
+}
+function normalizePercent(raw){
+  var n=normalizeNumber(raw);
+  if(n==null)return null;
+  if(Math.abs(n)<=1)n=n*100;
+  return +n.toFixed(2);
+}
+function extractRowFundamentals(row){
+  var src=(row&&typeof row.fundamentals==="object"&&row.fundamentals)||row||{};
+  var fd={};
+  function put(key,val){if(val!=null&&!isNaN(val))fd[key]=val}
+  put('pe',normalizeNumber(src.pe!=null?src.pe:src.pe_ratio));
+  put('pb',normalizeNumber(src.pb!=null?src.pb:src.price_to_book));
+  put('dy',normalizePercent(src.dy!=null?src.dy:(src.dividend_yield!=null?src.dividend_yield:src.divYield)));
+  put('roa',normalizePercent(src.roa));
+  put('roe',normalizePercent(src.roe));
+  put('de',normalizeNumber(src.de!=null?src.de:(src.debt_equity!=null?src.debt_equity:src.debtToEquity)));
+  put('cr',normalizeNumber(src.cr!=null?src.cr:(src.current_ratio!=null?src.current_ratio:src.currentRatio)));
+  put('gm',normalizePercent(src.gm!=null?src.gm:src.gross_margin));
+  put('om',normalizePercent(src.om!=null?src.om:src.operating_margin));
+  put('nm',normalizePercent(src.nm!=null?src.nm:src.net_margin));
+  put('eg',normalizePercent(src.eg!=null?src.eg:src.eps_growth));
+  put('eqg',normalizePercent(src.eqg!=null?src.eqg:src.eps_growth_qoq));
+  put('sg',normalizePercent(src.sg!=null?src.sg:src.sales_growth));
+  put('io',normalizePercent(src.io!=null?src.io:src.insider_ownership));
+  return fd;
+}
 function normalizeStockRecord(row){
   var ticker=normalizeTicker(row.t||row.ticker||row.symbol||row.code);
   if(!ticker)return null;
@@ -182,7 +213,8 @@ function normalizeStockRecord(row){
     mc:mc,
     r:region,
     co:row.co||co,
-    live:row.live||null
+    live:row.live||null,
+    fd:extractRowFundamentals(row)
   };
 }
 function normalizeUniverseRows(rows){
@@ -213,7 +245,13 @@ async function loadStockUniverse(){
   if(!API_AVAILABLE)return;
   try{var r=await fetch(API_BASE+'/stocks?limit=5000');var d=await r.json();
     var normalized=normalizeUniverseRows(d);
-    if(normalized&&normalized.length>0){ALL_STOCKS=normalized;console.log('Loaded '+normalized.length+' normalized stocks from QuestDB');}
+    if(normalized&&normalized.length>0){
+      ALL_STOCKS=normalized;
+      var mergedFund={};
+      normalized.forEach(function(st){if(st.fd&&Object.keys(st.fd).length)mergedFund[st.t]=Object.assign({},S.finvizData[st.t]||{},st.fd)});
+      if(Object.keys(mergedFund).length){S.finvizData=Object.assign({},S.finvizData,mergedFund);persistFundData();}
+      console.log('Loaded '+normalized.length+' normalized stocks from QuestDB');
+    }
   }catch(e){console.log('API stock load failed, using fallback');}
 }
 async function loadPriorPicks(){
