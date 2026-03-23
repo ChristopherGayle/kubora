@@ -1365,6 +1365,7 @@ function getRanked(){
       sc.g.evEbit=Math.max(sc.g.evEbit,25);
     }
     var baseComp=comp(sc,nw);
+    sc._debug={covCount:cov.count,baseComp:baseComp};
     // Factor Consensus Bonus: reward stocks strong across multiple categories
     var cats=0;
     if(sc.g.ey>10||sc.t.pb<2)cats++;
@@ -1616,6 +1617,12 @@ function renderScreener(){
   f.appendChild(ct);
   if(fallbackNotice){
     f.appendChild(h("div",{style:{margin:"0 0 12px",padding:"10px 12px",borderRadius:"10px",background:t.surface,border:"1px solid "+t.border,fontSize:"11px",color:t.ts,lineHeight:"1.5"}},"⚠️ "+fallbackNotice));
+  }
+  if(ranked.length){
+    var dbg=h("div",{style:{margin:"0 0 12px",padding:"10px 12px",borderRadius:"10px",background:t.surface,border:"1px solid "+t.border,fontSize:"11px",color:t.ts,lineHeight:"1.6",fontFamily:"'JetBrains Mono',monospace"}});
+    dbg.appendChild(h("div",{style:{fontWeight:"700",color:t.text,marginBottom:"4px"}},"Debug: Top Ranked Scores"));
+    ranked.slice(0,3).forEach(function(st){dbg.appendChild(h("div",null,st.t+" · final="+st.comp+" · base="+((st.sc&&st.sc._debug&&st.sc._debug.baseComp)!=null?st.sc._debug.baseComp:"?")+" · cov="+((st.sc&&st.sc._debug&&st.sc._debug.covCount)!=null?st.sc._debug.covCount:"?")))});
+    f.appendChild(dbg);
   }
   // Enhancement: warn when cap filter excludes stocks with unknown market cap
   if(S.capSize&&S.capSize!=="all"){
