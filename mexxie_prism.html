@@ -476,7 +476,7 @@ var STRAT_DETAILS=[
   {title:"Piotroski F-Score",icon:"\uD83E\uDDE0",why:"9 binary signals earn ~23% vs S&P in backtests.",met:"9-point binary: ROA, CFO, leverage, margins.",use:"Increase to 15-20% for small-cap screening."},
   {title:"Altman Z-Score",icon:"\uD83D\uDEE1\uFE0F",why:"72-80% accuracy predicting bankruptcy 2 years ahead.",met:"Z>2.99=Safe. 1.81-2.99=Grey. <1.81=Distress.",use:"Increase to 10-15% during economic downturns."},
   {title:"RSI Zone Filter",icon:"\uD83D\uDCC8",why:"RSI reduces buying into overbought rallies.",met:"RSI 40-65: ideal. RSI >75: avoid.",use:"Increase to 10-15% during volatile markets."},
-  {title:"EV/EBIT Multiple",icon:"\u2696\uFE0F",why:"Beats Greenblatt EY by ~2%/yr.",met:"EV/EBIT. <8x = deep value. >20x = expensive.",use:"Increase to 8-12% for pure deep-value."},
+  {title:"EV/EBIT Multiple",icon:"\u2696\uFE0F",why:"Inactive until real enterprise value and EBIT coverage is available.",met:"Requires observed EV and EBIT. The sleeve stays off when those fields are missing.",use:"Re-enable only when real EV/EBIT data is wired for the symbol universe."},
   {title:"Shareholder Yield",icon:"\uD83D\uDCB0",why:"Beats dividend-only by 2-3%/yr.",met:"Div yield + buyback yield + debt paydown.",use:"Increase to 8-12% for international stocks."},
   {title:"Revenue Growth",icon:"\uD83D\uDCC5",why:"Screens out cyclicals at earnings peaks.",met:"Consecutive quarters with positive YoY growth.",use:"Increase to 5-8% to avoid cyclical traps."},
   {title:"Short Interest",icon:"\uD83C\uDFAF",why:"5-15% short interest can signal contrarian opportunity.",met:"% of float sold short.",use:"Increase to 4-6% during market recoveries."},
@@ -2133,11 +2133,11 @@ function renderSettings(){
   // Strategy Weights
   var wc=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",marginBottom:"12px",maxWidth:"600px"}});
   wc.appendChild(h("h3",{style:{margin:"0 0 12px",fontSize:"15px",fontWeight:"600"}},"Strategy Weights"));
-  var wDesc={greenblatt:"Cheap stocks with high returns on capital",tweedy:"Deep value: low P/B, insider buying, dividends",munger:"Wide-moat quality companies at fair prices",simons:"Price momentum and statistical patterns",piotroski:"9-point financial health score",altman:"Bankruptcy risk filter (Z-Score)",rsi:"Avoid overbought entries, favor ideal zones",evEbit:"EV/EBIT sleeve is inactive until real EV/EBIT data is available",shYield:"Dividends + buybacks + debt paydown",revGrowth:"Consistent quarterly revenue growth",shortInt:"Moderate short interest as contrarian signal",druckenmiller:"Secular growth + macro momentum + quality entry (Druckenmiller)"};
+  var wDesc={greenblatt:"Cheap stocks with high returns on capital",tweedy:"Deep value: low P/B, insider buying, dividends",munger:"Wide-moat quality companies at fair prices",simons:"Price momentum and statistical patterns",piotroski:"9-point financial health score",altman:"Bankruptcy risk filter (Z-Score)",rsi:"Avoid overbought entries, favor ideal zones",shYield:"Dividends + buybacks + debt paydown",revGrowth:"Consistent quarterly revenue growth",shortInt:"Moderate short interest as contrarian signal",druckenmiller:"Secular growth + macro momentum + quality entry (Druckenmiller)"};
   [{k:"greenblatt",l:"Greenblatt Magic Formula"},{k:"tweedy",l:"Tweedy Browne Value"},
    {k:"munger",l:"Munger Quality"},{k:"simons",l:"Simons Quant"},
    {k:"piotroski",l:"Piotroski F-Score"},{k:"altman",l:"Altman Z-Score"},
-   {k:"rsi",l:"RSI Zone Filter"},{k:"evEbit",l:"EV/EBIT (inactive)"},
+   {k:"rsi",l:"RSI Zone Filter"},
    {k:"shYield",l:"Shareholder Yield"},{k:"revGrowth",l:"Revenue Growth Consistency"},
    {k:"shortInt",l:"Short Interest Contrarian"},{k:"druckenmiller",l:"\uD83D\uDE80 Druckenmiller Growth"}].forEach(function(w){
     var d=h("div",{style:{marginBottom:"14px"}});
@@ -2446,7 +2446,7 @@ function renderSettings(){
 
   // ── Provider-driven stored fundamentals refresh ──
   (function(){
-    var providerLabel=S.provider==="eodhd"?"EODHD quotes + Finnhub fundamentals + FMP/Twelve extras":S.provider==="fmp"?"FMP":"Finnhub";
+    var providerLabel=S.provider==="eodhd"?"EODHD quotes + Finnhub fundamentals + FMP/Twelve extras":S.provider==="fmp"?"FMP direct":"Finnhub direct";
     var autoDiv=h("div",{style:{marginBottom:"12px",padding:"10px 12px",background:t.bg,border:"1px solid "+t.accent+"55",borderRadius:"8px"}});
     autoDiv.appendChild(h("div",{style:{fontSize:"10px",fontWeight:"700",color:t.accent,letterSpacing:".5px",marginBottom:"4px"}},"🤖 PROVIDER REFRESH · "+providerLabel.toUpperCase()));
     autoDiv.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,marginBottom:"8px",lineHeight:"1.5"}},"Stores real fundamentals from the selected provider flow for weekly reuse. Current best working stack is EODHD quotes plus Finnhub fundamentals, with FMP/Twelve used only as extra fallback when available."));
@@ -2474,6 +2474,14 @@ function renderSettings(){
       });
     }},"🤖 Refresh Stored Fundamentals");
     autoDiv.appendChild(autoBtn);
+    if(S.lastProviderSummary||(S.lastErrors&&S.lastErrors.length)||(S.lastSource&&S.lastSource!=="Simulated")){
+      var providerBox=h("div",{style:{marginTop:"8px",padding:"8px 10px",background:t.surface,border:"1px solid "+t.border,borderRadius:"8px"}});
+      providerBox.appendChild(h("div",{style:{fontSize:"10px",fontWeight:"700",color:t.tm,letterSpacing:".5px",marginBottom:"4px"}},"PROVIDER RESULTS"));
+      if(S.lastSource&&S.lastSource!=="Simulated")providerBox.appendChild(h("div",{style:{fontSize:"11px",color:t.text,marginBottom:"4px",lineHeight:"1.4"}},"Source: "+S.lastSource));
+      if(S.lastProviderSummary)providerBox.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,marginBottom:(S.lastErrors&&S.lastErrors.length)?"4px":"0",lineHeight:"1.4"}},S.lastProviderSummary));
+      if(S.lastErrors&&S.lastErrors.length)providerBox.appendChild(h("div",{style:{fontSize:"10px",color:"#f59e0b",lineHeight:"1.4"}},"Notes: "+S.lastErrors.join(" · ")));
+      autoDiv.appendChild(providerBox);
+    }
     fvSec.appendChild(autoDiv);
     fvSec.appendChild(h("div",{style:{textAlign:"center",fontSize:"10px",color:t.tm,marginBottom:"8px",opacity:"0.6"}},"─── optional: import Finviz CSV for extra US coverage ───"));
   })();
