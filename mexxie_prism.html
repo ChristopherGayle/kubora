@@ -926,7 +926,7 @@ async function refreshStoredFundamentalsFromProvider(){
   await fetchLive();
   var imported=0;ALL_STOCKS.forEach(function(st){var d=liveToStoredFund(st);if(d){S.finvizData[normalizeTicker(st.t)]=d;imported++;}});
   S.finvizTs=Date.now();persistFundData();
-  return {imported:imported,total:ALL_STOCKS.length,missing:Math.max(0,ALL_STOCKS.length-imported),providerSummary:S.lastProviderSummary||"",errors:(S.lastErrors||[]).slice(0,3)};
+  return {imported:imported,total:ALL_STOCKS.length,missing:Math.max(0,ALL_STOCKS.length-imported),providerSummary:S.lastProviderSummary||"",providerCounts:S.lastProviderCounts||{},errors:(S.lastErrors||[]).slice(0,3)};
 }
 function u8ToB64(bytes){var bin="";bytes.forEach(function(b){bin+=String.fromCharCode(b)});return btoa(bin)}
 function b64ToU8(str){var bin=atob(str),out=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)out[i]=bin.charCodeAt(i);return out}
@@ -1120,12 +1120,13 @@ async function fetchEODHDLive(){
     S.lastRefresh=new Date();S.refreshCount=(S.refreshCount||0)+1;
     S.lastSource=chainParts.length?("Live · EODHD + "+chainParts.join(" + ")):"Live · EODHD Quotes";S.lastCalls=callCount;S.lastErrors=errors;
     S.lastProviderSummary=(function(){
-      var bits=["EODHD quotes"];
-      if(typeof fh!=="undefined")bits.push("Finnhub fundamentals: "+(fh.updated||0));
-      if(typeof fb1!=="undefined")bits.push("FMP fallback: "+(fb1.updated||0)+(fb1.errors&&fb1.errors.length?" (quota/errors)":""));
-      if(typeof fb2!=="undefined")bits.push("Twelve fallback: "+(fb2.updated||0)+" quote matches");
+      var bits=["EODHD quotes: "+Object.keys(quoteMap).length];
+      if(typeof fh!=="undefined")bits.push("Finnhub fundamentals stored: "+(fh.updated||0));
+      if(typeof fb1!=="undefined")bits.push("FMP fundamentals stored: "+(fb1.updated||0)+(fb1.errors&&fb1.errors.length?" (quota/errors)":""));
+      if(typeof fb2!=="undefined")bits.push("Twelve quote matches: "+(fb2.updated||0));
       return bits.join(" · ");
     })();
+    S.lastProviderCounts={eodhdQuotes:Object.keys(quoteMap).length,finnhubFundamentals:(typeof fh!=="undefined"?(fh.updated||0):0),fmpFallback:(typeof fb1!=="undefined"?(fb1.updated||0):0),twelveFallback:(typeof fb2!=="undefined"?(fb2.updated||0):0)};
   }catch(e){errors.push("Fatal: "+e.message);S.lastErrors=errors}
   S.loading=false;S.loadingMsg="";try{render()}catch(re){console.error("render error on load end:",re);try{document.getElementById("app").innerHTML="<div style='padding:40px;color:#ef4444'>Render error — please reload the page.<br><small>"+re.message+"</small></div>"}catch(x){}}
   persistScores();
@@ -1162,7 +1163,7 @@ async function fetchFMPLive(){
     }});
     ETFS.forEach(function(etf){var q=quoteMap[etf.t];if(q){if(q.change!=null)etf.mom=+q.change.toFixed(1);if(q.price)etf.lastPrice=q.price}});
     S.prior.forEach(function(pk){var sym=fmpTicker(pk.t);var q=quoteMap[sym];if(q&&q.price)pk.curr=+q.price.toFixed(2)});
-    S.dataSeed=Math.floor(Math.random()*90000)+10000;S.lastRefresh=new Date();S.refreshCount=(S.refreshCount||0)+1;S.lastSource="Live · FMP";S.lastCalls=callCount;S.lastErrors=errors;S.lastProviderSummary="FMP quotes+ratios: "+Object.keys(quoteMap).length;
+    S.dataSeed=Math.floor(Math.random()*90000)+10000;S.lastRefresh=new Date();S.refreshCount=(S.refreshCount||0)+1;S.lastSource="Live · FMP";S.lastCalls=callCount;S.lastErrors=errors;S.lastProviderSummary="FMP quotes+ratios stored: "+Object.keys(quoteMap).length;S.lastProviderCounts={fmpDirect:Object.keys(quoteMap).length};
   }catch(e){errors.push("Fatal: "+e.message);S.lastErrors=errors}
   S.loading=false;S.loadingMsg="";render();persistScores();
 }
@@ -1187,7 +1188,7 @@ async function fetchFinnhubLive(){
     ALL_STOCKS.forEach(function(st){var sym=fmpTicker(st.t);var q=quoteMap[sym];if(q){if(q.price)st.p=+q.price.toFixed(2);if(q.mc)st.mc=+(q.mc/1000).toFixed(0);st.live={pb:q.pb,roe:q.roe,divYield:q.divYield,fcfYield:q.fcfYield,pe:q.pe,change:q.change,debtEquity:q.debtEquity}}});
     ETFS.forEach(function(etf){var q=quoteMap[etf.t];if(q){if(q.change!=null)etf.mom=+q.change.toFixed(1);if(q.price)etf.lastPrice=q.price}});
     S.prior.forEach(function(pk){var sym=fmpTicker(pk.t);var q=quoteMap[sym];if(q&&q.price)pk.curr=+q.price.toFixed(2)});
-    S.dataSeed=Math.floor(Math.random()*90000)+10000;S.lastRefresh=new Date();S.refreshCount=(S.refreshCount||0)+1;S.lastSource="Live · Finnhub";S.lastCalls=callCount;S.lastErrors=errors;S.lastProviderSummary="Finnhub quotes+fundamentals: "+Object.keys(quoteMap).length;
+    S.dataSeed=Math.floor(Math.random()*90000)+10000;S.lastRefresh=new Date();S.refreshCount=(S.refreshCount||0)+1;S.lastSource="Live · Finnhub";S.lastCalls=callCount;S.lastErrors=errors;S.lastProviderSummary="Finnhub quotes+fundamentals stored: "+Object.keys(quoteMap).length;S.lastProviderCounts={finnhubDirect:Object.keys(quoteMap).length};
   }catch(e){errors.push("Fatal: "+e.message);S.lastErrors=errors}
   S.loading=false;S.loadingMsg="";render();persistScores();
 }
@@ -1252,7 +1253,7 @@ var S={
   eodhKey:(function(){try{return localStorage.getItem("mexxie_eodh_key")||""}catch(e){return""}})(),
   finvizData:(function(){try{var d=localStorage.getItem("mexxie_finviz_data");return d?normalizeFundamentalMap(JSON.parse(d)):{}}catch(e){return{}}}()),
   finvizTs:(function(){try{return+localStorage.getItem("mexxie_finviz_ts")||null}catch(e){return null}}()),
-  loading:false,loadingMsg:"",lastSource:"Simulated",lastCalls:0,lastErrors:[],lastProviderSummary:"",
+  loading:false,loadingMsg:"",lastSource:"Simulated",lastCalls:0,lastErrors:[],lastProviderSummary:"",lastProviderCounts:{},
   expandedStock:null,
   capSize:(function(){try{return localStorage.getItem("mexxie_cap_size")||"all"}catch(e){return"all"}})(),
   coverageFilter:(function(){try{return localStorage.getItem("mexxie_coverage_filter")||"all"}catch(e){return"all"}})(),
@@ -2047,7 +2048,7 @@ function renderStrat(){
     intro.appendChild(row);
   });
   f.appendChild(intro);
-  STRAT_DETAILS.forEach(function(s,i){
+  STRAT_DETAILS.filter(function(s){return s.title!=="EV/EBIT Multiple"}).forEach(function(s,i){
     var c=h("div",{className:"fade-in",style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",marginBottom:"12px",animationDelay:(i*50)+"ms"}});
     var hd=h("div",{style:{display:"flex",alignItems:"center",gap:"8px",marginBottom:"10px"}});
     hd.appendChild(h("span",{style:{fontSize:"22px"}},s.icon));
@@ -2462,6 +2463,11 @@ function renderSettings(){
       refreshStoredFundamentalsFromProvider().then(function(summary){
         var lines=["✅ Stored real fundamentals for "+summary.imported.toLocaleString()+" / "+summary.total.toLocaleString()+" stocks. "+summary.missing.toLocaleString()+" still unresolved."];
         if(summary.providerSummary)lines.push(summary.providerSummary);
+        if(summary.providerCounts&&Object.keys(summary.providerCounts).length){
+          var countLabels={eodhdQuotes:"EODHD quotes",finnhubFundamentals:"Finnhub fundamentals stored",fmpFallback:"FMP fundamentals stored",twelveFallback:"Twelve quote matches",fmpDirect:"FMP direct stored",finnhubDirect:"Finnhub direct stored"};
+          var countLine=Object.keys(summary.providerCounts).map(function(key){return (countLabels[key]||key)+": "+summary.providerCounts[key]}).join(" · ");
+          lines.push("Provider counts: "+countLine);
+        }
         if(summary.errors&&summary.errors.length)lines.push("Notes: "+summary.errors.join(" · "));
         autoStatus.textContent=lines.join(" ");
         autoStatus.style.color=summary.missing>0?"#f59e0b":"";
@@ -2478,7 +2484,11 @@ function renderSettings(){
       var providerBox=h("div",{style:{marginTop:"8px",padding:"8px 10px",background:t.surface,border:"1px solid "+t.border,borderRadius:"8px"}});
       providerBox.appendChild(h("div",{style:{fontSize:"10px",fontWeight:"700",color:t.tm,letterSpacing:".5px",marginBottom:"4px"}},"PROVIDER RESULTS"));
       if(S.lastSource&&S.lastSource!=="Simulated")providerBox.appendChild(h("div",{style:{fontSize:"11px",color:t.text,marginBottom:"4px",lineHeight:"1.4"}},"Source: "+S.lastSource));
-      if(S.lastProviderSummary)providerBox.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,marginBottom:(S.lastErrors&&S.lastErrors.length)?"4px":"0",lineHeight:"1.4"}},S.lastProviderSummary));
+      if(S.lastProviderSummary)providerBox.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,marginBottom:(S.lastProviderCounts&&Object.keys(S.lastProviderCounts).length)||(S.lastErrors&&S.lastErrors.length)?"4px":"0",lineHeight:"1.4"}},S.lastProviderSummary));
+      if(S.lastProviderCounts&&Object.keys(S.lastProviderCounts).length){
+        var countLabels={eodhdQuotes:"EODHD quotes",finnhubFundamentals:"Finnhub fundamentals stored",fmpFallback:"FMP fundamentals stored",twelveFallback:"Twelve quote matches",fmpDirect:"FMP direct stored",finnhubDirect:"Finnhub direct stored"};
+        providerBox.appendChild(h("div",{style:{fontSize:"10px",color:t.tm,marginBottom:(S.lastErrors&&S.lastErrors.length)?"4px":"0",lineHeight:"1.4"}},"Counts: "+Object.keys(S.lastProviderCounts).map(function(key){return (countLabels[key]||key)+": "+S.lastProviderCounts[key]}).join(" · ")));
+      }
       if(S.lastErrors&&S.lastErrors.length)providerBox.appendChild(h("div",{style:{fontSize:"10px",color:"#f59e0b",lineHeight:"1.4"}},"Notes: "+S.lastErrors.join(" · ")));
       autoDiv.appendChild(providerBox);
     }
