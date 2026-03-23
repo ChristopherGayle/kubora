@@ -945,6 +945,8 @@ async function refreshStoredFundamentalsFromProvider(){
   await fetchLive();
   var imported=0;ALL_STOCKS.forEach(function(st){var d=liveToStoredFund(st);if(d){S.finvizData[normalizeTicker(st.t)]=d;imported++;}});
   S.finvizTs=Date.now();persistFundData();
+  var evActiveCount=ALL_STOCKS.filter(function(st){return evEbitMeta(st).active}).length;
+  S.lastProviderCounts=Object.assign({},S.lastProviderCounts||{},{evEbitActive:evActiveCount});
   return {imported:imported,total:ALL_STOCKS.length,missing:Math.max(0,ALL_STOCKS.length-imported),providerSummary:S.lastProviderSummary||"",providerCounts:S.lastProviderCounts||{},errors:(S.lastErrors||[]).slice(0,3)};
 }
 function u8ToB64(bytes){var bin="";bytes.forEach(function(b){bin+=String.fromCharCode(b)});return btoa(bin)}
@@ -1431,6 +1433,7 @@ function h(tag,a,ch){var el=document.createElement(tag);if(a)Object.keys(a).forE
 function sBar(v,mx,col){var t=T();var o=h("div",{style:{width:"100%",height:"6px",borderRadius:"3px",background:t.border,overflow:"hidden"}});o.appendChild(h("div",{className:"bar-fill",style:{width:Math.min(100,v/mx*100)+"%",height:"100%",borderRadius:"3px",background:col||t.accent}}));return o}
 function bdg(txt,col){var t=T();var c=col||t.accent;return h("span",{style:{display:"inline-block",padding:"2px 8px",borderRadius:"10px",fontSize:"10px",fontWeight:"600",background:c+"22",color:c,border:"1px solid "+c+"33",letterSpacing:".3px"}},txt)}
 function coverageMeta(st){var c=st&&st.realFundCount!=null?+(st.realFundCount||0):realCoverage(st).count;if(c>=6)return{key:"high",label:"Coverage: High",short:"High",color:"#10b981",hint:c+" real fields"};if(c>=3)return{key:"medium",label:"Coverage: Medium",short:"Medium",color:"#f59e0b",hint:c+" real fields"};if(c>=1)return{key:"low",label:"Coverage: Low",short:"Low",color:"#f97316",hint:c+" real fields"};return{key:"simulated",label:"Coverage: Simulated",short:"Simulated",color:"#ef4444",hint:"0 real fields"}}
+function evEbitMeta(st){var fd=S.finvizData[normalizeTicker(st.t)]||{};var v=fd.evEbit!=null?numOrNull(fd.evEbit):(st&&st.live&&st.live.evEbit!=null?numOrNull(st.live.evEbit):computeRealEvEbit(st));return(v!=null&&v>0)?{active:true,label:"EV/EBIT Real",color:"#14b8a6",value:v}:{active:false,label:"EV/EBIT Off",color:T().tm,value:null}}
 function sourceMeta(st){
   function nn(v){if(v==null||v==="")return null;var n=+v;return isNaN(n)?null:n}
   var hasStored=!!S.finvizData[normalizeTicker(st.t)];
@@ -1676,7 +1679,7 @@ function renderScreener(){
     var isHero=i===0;var isExpanded=S.expandedStock===st.t;
     var valScore=getValueScore(st.sc);var qualScore=getQualityScore(st.sc);var momScore=getMomentumScore(st.sc);var safeScore=getSafetyScore(st.sc);
     var valR=factorRating(valScore,[70,50,30]);var qualR=factorRating(qualScore,[80,65,45]);var momR=factorRating(momScore,[65,50,35]);var safeR=factorRating(safeScore,[70,50,30]);
-    var covMeta=coverageMeta(st);
+    var covMeta=coverageMeta(st);var evMeta=evEbitMeta(st);
     var card=h("div",{className:"stock-card v5-card-wash terminal-card fade-in"+(isHero?" hero-card":""),style:{background:t.card,border:isExpanded?"1px solid "+t.accent:"1px solid "+t.border,boxShadow:isExpanded?"0 18px 40px rgba(8,145,178,0.18)":"0 8px 24px rgba(2,6,23,0.28)",animationDelay:(i*30)+"ms"},onClick:function(e){if(e.target.tagName==="BUTTON"||e.target.tagName==="SELECT")return;S.expandedStock=isExpanded?null:st.t;render()}});
     // Card header
     var header=h("div",{style:{display:"flex",alignItems:"flex-start",gap:"14px",justifyContent:"space-between"}});
@@ -1688,6 +1691,7 @@ function renderScreener(){
     var srcMeta=sourceMeta(st);
     topRow.appendChild(bdg(srcMeta.label,srcMeta.color));
     topRow.appendChild(bdg(covMeta.label,covMeta.color));
+    if(evMeta.active)topRow.appendChild(bdg(evMeta.label,evMeta.color));
     leftSide.appendChild(topRow);
     leftSide.appendChild(h("div",{style:{fontSize:"12px",color:t.ts,marginBottom:"6px"}},st.n));
     var badges=h("div",{style:{display:"flex",gap:"4px",flexWrap:"wrap"}});
@@ -2485,7 +2489,7 @@ function renderSettings(){
         var lines=["✅ Stored real fundamentals for "+summary.imported.toLocaleString()+" / "+summary.total.toLocaleString()+" stocks. "+summary.missing.toLocaleString()+" still unresolved."];
         if(summary.providerSummary)lines.push(summary.providerSummary);
         if(summary.providerCounts&&Object.keys(summary.providerCounts).length){
-          var countLabels={eodhdQuotes:"EODHD quotes",finnhubFundamentals:"Finnhub fundamentals stored",fmpFallback:"FMP fundamentals stored",twelveFallback:"Twelve quote matches",fmpDirect:"FMP direct stored",finnhubDirect:"Finnhub direct stored"};
+          var countLabels={eodhdQuotes:"EODHD quotes",finnhubFundamentals:"Finnhub fundamentals stored",fmpFallback:"FMP fundamentals stored",twelveFallback:"Twelve quote matches",fmpDirect:"FMP direct stored",finnhubDirect:"Finnhub direct stored",evEbitActive:"EV/EBIT active"};
           var countLine=Object.keys(summary.providerCounts).map(function(key){return (countLabels[key]||key)+": "+summary.providerCounts[key]}).join(" · ");
           lines.push("Provider counts: "+countLine);
         }
@@ -2507,7 +2511,7 @@ function renderSettings(){
       if(S.lastSource&&S.lastSource!=="Simulated")providerBox.appendChild(h("div",{style:{fontSize:"11px",color:t.text,marginBottom:"4px",lineHeight:"1.4"}},"Source: "+S.lastSource));
       if(S.lastProviderSummary)providerBox.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,marginBottom:(S.lastProviderCounts&&Object.keys(S.lastProviderCounts).length)||(S.lastErrors&&S.lastErrors.length)?"4px":"0",lineHeight:"1.4"}},S.lastProviderSummary));
       if(S.lastProviderCounts&&Object.keys(S.lastProviderCounts).length){
-        var countLabels={eodhdQuotes:"EODHD quotes",finnhubFundamentals:"Finnhub fundamentals stored",fmpFallback:"FMP fundamentals stored",twelveFallback:"Twelve quote matches",fmpDirect:"FMP direct stored",finnhubDirect:"Finnhub direct stored"};
+        var countLabels={eodhdQuotes:"EODHD quotes",finnhubFundamentals:"Finnhub fundamentals stored",fmpFallback:"FMP fundamentals stored",twelveFallback:"Twelve quote matches",fmpDirect:"FMP direct stored",finnhubDirect:"Finnhub direct stored",evEbitActive:"EV/EBIT active"};
         providerBox.appendChild(h("div",{style:{fontSize:"10px",color:t.tm,marginBottom:(S.lastErrors&&S.lastErrors.length)?"4px":"0",lineHeight:"1.4"}},"Counts: "+Object.keys(S.lastProviderCounts).map(function(key){return (countLabels[key]||key)+": "+S.lastProviderCounts[key]}).join(" · ")));
       }
       if(S.lastErrors&&S.lastErrors.length)providerBox.appendChild(h("div",{style:{fontSize:"10px",color:"#f59e0b",lineHeight:"1.4"}},"Notes: "+S.lastErrors.join(" · ")));
