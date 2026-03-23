@@ -115,6 +115,95 @@ var API_BASE=(function(){
   return RAILWAY_DEFAULT; // GitHub Pages / any non-localhost → always try Railway
 })();
 var API_AVAILABLE=false;
+var COUNTRY_FLAGS={
+  "US":"🇺🇸","USA":"🇺🇸","UNITED STATES":"🇺🇸",
+  "GB":"🇬🇧","UK":"🇬🇧","UNITED KINGDOM":"🇬🇧","ENGLAND":"🇬🇧",
+  "DE":"🇩🇪","GERMANY":"🇩🇪","FR":"🇫🇷","FRANCE":"🇫🇷","CH":"🇨🇭","SWITZERLAND":"🇨🇭",
+  "NL":"🇳🇱","NETHERLANDS":"🇳🇱","DK":"🇩🇰","DENMARK":"🇩🇰","ES":"🇪🇸","SPAIN":"🇪🇸",
+  "IT":"🇮🇹","ITALY":"🇮🇹","SE":"🇸🇪","SWEDEN":"🇸🇪",
+  "CN":"🇨🇳","CHINA":"🇨🇳","HK":"🇭🇰","HONG KONG":"🇭🇰","JP":"🇯🇵","JAPAN":"🇯🇵",
+  "KR":"🇰🇷","SOUTH KOREA":"🇰🇷","TW":"🇹🇼","TAIWAN":"🇹🇼","IN":"🇮🇳","INDIA":"🇮🇳",
+  "SG":"🇸🇬","SINGAPORE":"🇸🇬","AU":"🇦🇺","AUSTRALIA":"🇦🇺",
+  "BR":"🇧🇷","BRAZIL":"🇧🇷","MX":"🇲🇽","MEXICO":"🇲🇽","AR":"🇦🇷","ARGENTINA":"🇦🇷","CL":"🇨🇱","CHILE":"🇨🇱","CO":"🇨🇴","COLOMBIA":"🇨🇴",
+  "ZA":"🇿🇦","SOUTH AFRICA":"🇿🇦","NG":"🇳🇬","NIGERIA":"🇳🇬","KE":"🇰🇪","KENYA":"🇰🇪","GH":"🇬🇭","GHANA":"🇬🇭"
+};
+function normalizeTicker(raw){
+  var t=(raw==null?"":String(raw)).trim();
+  if(!t)return"";
+  return t.toUpperCase().replace(/\s+/g,"");
+}
+function normalizeSector(raw){
+  var s=(raw==null?"":String(raw)).trim();
+  if(!s)return"Other";
+  var u=s.toUpperCase();
+  if(u.indexOf("TECH")>=0||u.indexOf("SOFTWARE")>=0||u.indexOf("SEMICON")>=0)return"Technology";
+  if(u.indexOf("HEALTH")>=0||u.indexOf("PHARMA")>=0||u.indexOf("BIOTECH")>=0)return"Healthcare";
+  if(u.indexOf("FINAN")>=0||u.indexOf("BANK")>=0||u.indexOf("INSUR")>=0||u.indexOf("CAPITAL")>=0)return"Finance";
+  if(u.indexOf("CONSUM")>=0||u.indexOf("RETAIL")>=0||u.indexOf("AUTO")>=0||u.indexOf("MEDIA")>=0||u.indexOf("LEISURE")>=0)return"Consumer";
+  if(u.indexOf("ENER")>=0||u.indexOf("OIL")>=0||u.indexOf("GAS")>=0)return"Energy";
+  if(u.indexOf("INDUSTR")>=0||u.indexOf("AEROSPACE")>=0||u.indexOf("TRANSPORT")>=0||u.indexOf("LOGISTICS")>=0)return"Industrial";
+  if(u.indexOf("MATERIAL")>=0||u.indexOf("MINING")>=0||u.indexOf("CHEM")>=0)return"Materials";
+  if(u.indexOf("UTILIT")>=0)return"Utilities";
+  if(u.indexOf("REAL")>=0||u.indexOf("REIT")>=0||u.indexOf("PROPERTY")>=0)return"Real Estate";
+  if(u.indexOf("TELECOM")>=0||u.indexOf("COMMUNICATION")>=0)return"Telecom";
+  return SECTORS.indexOf(s)>=0?s:"Other";
+}
+function normalizeRegion(raw,country,ticker,exchange){
+  var txt=((raw||"")+" "+(country||"")+" "+(exchange||"")+" "+(ticker||"")).toUpperCase();
+  if(/UNITED STATES| USA\b|\bUS\b|NASDAQ|NYSE|\.US\b/.test(txt))return"US";
+  if(/EUROPE| UNITED KINGDOM| UK\b| ENGLAND| GERMANY| FRANCE| SWITZERLAND| NETHERLANDS| DENMARK| SPAIN| ITALY| SWEDEN| LSE| XETRA|\.PA\b|\.DE\b|\.MC\b|\.L\b|\.LSE\b|\.AS\b|\.SW\b/.test(txt))return"Europe";
+  if(/ASIA| CHINA| HONG KONG| JAPAN| SOUTH KOREA| KOREA| TAIWAN| INDIA| SINGAPORE| AUSTRALIA| HKEX| NSE| BSE| TYO| KQ| KS|\.HK\b|\.T\b|\.KS\b|\.KQ\b|\.NS\b|\.AX\b/.test(txt))return"Asia";
+  if(/S\. AMERICA|SOUTH AMERICA|LATAM|LATIN| BRAZIL| ARGENTINA| CHILE| COLOMBIA| MEXICO|\.SA\b/.test(txt))return"S. America";
+  if(/AFRICA| SOUTH AFRICA| NIGERIA| KENYA| GHANA| JSE|\.JSE\b/.test(txt))return"Africa";
+  return"Worldwide";
+}
+function normalizeMarketCap(raw){
+  if(raw==null||raw==="")return 0;
+  var n=+raw;
+  if(!isFinite(n)||n<=0)return 0;
+  if(n>1000000000)return +(n/1e9).toFixed(0);
+  if(n>1000000&&n<=1000000000)return +(n/1000).toFixed(0);
+  return +n.toFixed(0);
+}
+function normalizeStockRecord(row){
+  var ticker=normalizeTicker(row.t||row.ticker||row.symbol||row.code);
+  if(!ticker)return null;
+  var country=(row.country||row.country_name||row.countryCode||row.country_code||"");
+  var exchange=(row.exchange||row.primary_exchange||row.market||"");
+  var region=normalizeRegion(row.r||row.region,country,ticker,exchange);
+  var co=COUNTRY_FLAGS[String(country).trim().toUpperCase()]||COUNTRY_FLAGS[String(row.country_code||"").trim().toUpperCase()]||REGION_MAP[region]||"🌐";
+  var mc=normalizeMarketCap(row.mc!=null?row.mc:(row.market_cap_bn!=null?row.market_cap_bn:(row.marketCapBn!=null?row.marketCapBn:(row.market_cap!=null?row.market_cap:row.marketCap))));
+  var price=+(row.p!=null?row.p:(row.price!=null?row.price:(row.close!=null?row.close:(row.last_price!=null?row.last_price:0))));
+  return{
+    t:ticker,
+    n:(row.n||row.name||row.company_name||row.company||ticker),
+    s:normalizeSector(row.s||row.sector||row.industry_group||row.industry),
+    p:isFinite(price)&&price>0?+price:0,
+    mc:mc,
+    r:region,
+    co:row.co||co,
+    live:row.live||null
+  };
+}
+function normalizeUniverseRows(rows){
+  var out=[];var seen={};
+  (rows||[]).forEach(function(row){
+    var st=normalizeStockRecord(row);
+    if(!st||!st.t||seen[st.t])return;
+    seen[st.t]=1;
+    out.push(st);
+  });
+  return out;
+}
+function normalizeFundamentalMap(map){
+  var out={};
+  Object.keys(map||{}).forEach(function(k){
+    var nk=normalizeTicker(k);
+    if(!nk)return;
+    out[nk]=map[k];
+  });
+  return out;
+}
 
 async function checkAPI(){
   if(!API_BASE){API_AVAILABLE=false;return;}
@@ -123,7 +212,8 @@ async function checkAPI(){
 async function loadStockUniverse(){
   if(!API_AVAILABLE)return;
   try{var r=await fetch(API_BASE+'/stocks?limit=5000');var d=await r.json();
-    if(d&&d.length>0){ALL_STOCKS=d;console.log('Loaded '+d.length+' stocks from QuestDB');}
+    var normalized=normalizeUniverseRows(d);
+    if(normalized&&normalized.length>0){ALL_STOCKS=normalized;console.log('Loaded '+normalized.length+' normalized stocks from QuestDB');}
   }catch(e){console.log('API stock load failed, using fallback');}
 }
 async function loadPriorPicks(){
@@ -641,7 +731,7 @@ function parseFinvizCSV(text){
   return{count:count,data:data};
 }
 function applyFinvizData(sc,ticker){
-  var fd=S.finvizData[ticker];if(!fd)return;
+  var fd=S.finvizData[normalizeTicker(ticker)];if(!fd)return;
   // Earnings yield from real PE
   if(fd.pe!=null){if(fd.pe>0)sc.g.ey=+Math.min(25,100/fd.pe).toFixed(1);else sc.g.ey=0;}
   // Finviz shows "-" (null) for PE when company is loss-making — detect via ROA or net margin
@@ -695,7 +785,7 @@ function persistFundData(){
 }
 function realCoverage(st){
   function nn(v){if(v==null||v==="")return null;var n=+v;return isNaN(n)?null:n}
-  var fd=S.finvizData[st.t]||{};var lv=st.live||{};
+  var fd=S.finvizData[normalizeTicker(st.t)]||{};var lv=st.live||{};
   var pe=fd.pe!=null?nn(fd.pe):nn(lv.pe),pb=fd.pb!=null?nn(fd.pb):nn(lv.pb),roe=fd.roe!=null?nn(fd.roe):nn(lv.roe),fcf=nn(lv.fcfYield);
   var roa=nn(fd.roa),nm=nn(fd.nm),om=nn(fd.om),de=fd.de!=null?nn(fd.de):nn(lv.debtEquity),cr=nn(fd.cr),eg=nn(fd.eg),sg=nn(fd.sg);
   var metrics=[pe,pb,roe,fcf,roa,nm,om,de,cr,eg,sg].filter(function(v){return v!=null}).length;
@@ -704,7 +794,8 @@ function realCoverage(st){
 function liveToStoredFund(st){
   function nn(v){if(v==null||v==="")return null;var n=+v;return isNaN(n)?null:n}
   var lv=st.live||null;if(!lv)return null;
-  var out=Object.assign({},S.finvizData[st.t]||{});
+  var tk=normalizeTicker(st.t);
+  var out=Object.assign({},S.finvizData[tk]||{});
   if(lv.lossMarker)out.pe=-1;else if(nn(lv.pe)!=null)out.pe=nn(lv.pe);
   if(nn(lv.pb)!=null)out.pb=Math.abs(nn(lv.pb));
   if(nn(lv.roe)!=null)out.roe=nn(lv.roe)*100;
@@ -718,7 +809,7 @@ async function refreshStoredFundamentalsFromProvider(){
   var hasKey=S.provider==="eodhd"?!!S.eodhKey:S.provider==="finnhub"?!!S.finnhubKey:!!S.apiKey;
   if(!hasKey)throw new Error("Selected provider key missing in Settings.");
   await fetchLive();
-  var imported=0;ALL_STOCKS.forEach(function(st){var d=liveToStoredFund(st);if(d){S.finvizData[st.t]=d;imported++;}});
+  var imported=0;ALL_STOCKS.forEach(function(st){var d=liveToStoredFund(st);if(d){S.finvizData[normalizeTicker(st.t)]=d;imported++;}});
   S.finvizTs=Date.now();persistFundData();
   return {imported:imported,total:ALL_STOCKS.length,missing:Math.max(0,ALL_STOCKS.length-imported)};
 }
@@ -1030,7 +1121,7 @@ var S={
   finnhubKey:(function(){try{return localStorage.getItem("mexxie_finnhub_key")||""}catch(e){return""}})(),
   twelveKey:(function(){try{return localStorage.getItem("mexxie_twelve_key")||""}catch(e){return""}})(),
   eodhKey:(function(){try{return localStorage.getItem("mexxie_eodh_key")||""}catch(e){return""}})(),
-  finvizData:(function(){try{var d=localStorage.getItem("mexxie_finviz_data");return d?JSON.parse(d):{}}catch(e){return{}}}()),
+  finvizData:(function(){try{var d=localStorage.getItem("mexxie_finviz_data");return d?normalizeFundamentalMap(JSON.parse(d)):{}}catch(e){return{}}}()),
   finvizTs:(function(){try{return+localStorage.getItem("mexxie_finviz_ts")||null}catch(e){return null}}()),
   loading:false,loadingMsg:"",lastSource:"Simulated",lastCalls:0,lastErrors:[],
   expandedStock:null,
@@ -1107,9 +1198,10 @@ function getRanked(){
     // Propagate FMP loss-marker (negative PE) into EY=0 so the guard below fires
     if(st.live&&st.live.lossMarker)sc.g.ey=0;
     var cov=realCoverage(st);
+    if(cov.count<3)return null;
     // Large-universe safeguard: if live/Finviz data exists for the universe but this ticker has none,
     // suppress simulated top-rank outcomes until real fundamentals are available.
-    var hasFinviz=!!S.finvizData[st.t];
+    var hasFinviz=!!S.finvizData[normalizeTicker(st.t)];
     var hasLiveFund=!!(st.live&&(numOrNull(st.live.pe)!=null||numOrNull(st.live.pb)!=null||numOrNull(st.live.roe)!=null||numOrNull(st.live.fcfYield)!=null));
     if(ALL_STOCKS.length>=1000&&hasRealFundCoverage&&!hasFinviz&&!hasLiveFund){
       sc.g.ey=Math.min(sc.g.ey,1.5);
@@ -1188,6 +1280,17 @@ function h(tag,a,ch){var el=document.createElement(tag);if(a)Object.keys(a).forE
 function sBar(v,mx,col){var t=T();var o=h("div",{style:{width:"100%",height:"6px",borderRadius:"3px",background:t.border,overflow:"hidden"}});o.appendChild(h("div",{className:"bar-fill",style:{width:Math.min(100,v/mx*100)+"%",height:"100%",borderRadius:"3px",background:col||t.accent}}));return o}
 function bdg(txt,col){var t=T();var c=col||t.accent;return h("span",{style:{display:"inline-block",padding:"2px 8px",borderRadius:"10px",fontSize:"10px",fontWeight:"600",background:c+"22",color:c,border:"1px solid "+c+"33",letterSpacing:".3px"}},txt)}
 function coverageMeta(st){var c=+(st&&st.realFundCount||0);if(c>=6)return{key:"high",label:"Coverage: High",short:"High",color:"#10b981",hint:c+" real fields"};if(c>=3)return{key:"medium",label:"Coverage: Medium",short:"Medium",color:"#f59e0b",hint:c+" real fields"};if(c>=1)return{key:"low",label:"Coverage: Low",short:"Low",color:"#f97316",hint:c+" real fields"};return{key:"simulated",label:"Coverage: Simulated",short:"Simulated",color:"#ef4444",hint:"0 real fields"}}
+function sourceMeta(st){
+  function nn(v){if(v==null||v==="")return null;var n=+v;return isNaN(n)?null:n}
+  var hasStored=!!S.finvizData[normalizeTicker(st.t)];
+  var hasLive=!!st.live;
+  var hasLiveFund=!!(st.live&&(nn(st.live.pe)!=null||nn(st.live.pb)!=null||nn(st.live.roe)!=null||nn(st.live.fcfYield)!=null));
+  if(hasLiveFund&&hasStored)return{label:"MIXED",color:"#8b5cf6"};
+  if(hasLiveFund)return{label:"LIVE",color:T().buy};
+  if(hasLive)return{label:"QUOTE",color:"#f59e0b"};
+  if(hasStored)return{label:"IMPORTED",color:"#0ea5e9"};
+  return{label:"SIMULATED",color:T().tm};
+}
 function providerGapBucket(st){var tk=st&&st.t||"";if(/\.LSE$/i.test(tk)||/\.L$/i.test(tk))return"London";if(/\.PA$/i.test(tk))return"Paris";if(/\.DE$/i.test(tk))return"Germany";if(/\.MC$/i.test(tk))return"Madrid";if(/\.JO$/i.test(tk)||/\.JSE$/i.test(tk))return"Johannesburg";if(/\.NS$/i.test(tk)||/\.NSE$/i.test(tk))return"India";if(/\.HK$/i.test(tk)||/^0\d{3}$/.test(tk)||/^\d{4}$/.test(tk))return"Hong Kong / Asia codes";if(/^\d{6}$/.test(tk))return"Asia numeric";if(/\.US$/i.test(tk))return"US";if(/[A-Z]/.test(tk)&&tk.indexOf('.')===-1)return"US / ADR";return"Other"}
 function catCol(c){var t=T();if(c.indexOf("Mom")>=0)return"#a78bfa";if(c.indexOf("Val")>=0||c.indexOf("val")>=0)return t.buy;if(c.indexOf("Div")>=0)return"#f59e0b";if(c.indexOf("Emerg")>=0||c.indexOf("Brazil")>=0)return"#f97316";return t.accent}
 
@@ -1420,7 +1523,8 @@ function renderScreener(){
     topRow.appendChild(h("div",{style:{width:"28px",height:"28px",borderRadius:"14px",background:t.accent+"22",border:"1px solid "+t.accent+"44",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"11px",fontWeight:"700",color:t.accent,flexShrink:"0"}},"#"+(i+1)));
     var tickerEl=h("span",{className:"mono",style:{fontSize:isHero?"17px":"15px",fontWeight:"700",color:t.text,letterSpacing:".5px"}},st.co+" "+st.t);
     topRow.appendChild(tickerEl);
-    if(st.live)topRow.appendChild(bdg("LIVE",t.buy));
+    var srcMeta=sourceMeta(st);
+    topRow.appendChild(bdg(srcMeta.label,srcMeta.color));
     topRow.appendChild(bdg(covMeta.label,covMeta.color));
     leftSide.appendChild(topRow);
     leftSide.appendChild(h("div",{style:{fontSize:"12px",color:t.ts,marginBottom:"6px"}},st.n));
@@ -2163,7 +2267,7 @@ function renderSettings(){
   gapHead.appendChild(h("button",{style:{padding:"5px 10px",borderRadius:"8px",border:"1px solid "+t.border,background:t.card,color:t.text,fontSize:"10px",fontWeight:"700",fontFamily:"inherit",cursor:"pointer"},onClick:function(){
     var header=["Ticker","Name","Region","Sector","GapBucket","Coverage","RealFieldCount","HasLiveQuote","HasLiveFund","HasStoredFund","ProviderMode","Price","MarketCap_B"];
     var rows=unresolved.map(function(st){
-      var cov=coverageMeta(st);var hasStored=!!S.finvizData[st.t];
+      var cov=coverageMeta(st);var hasStored=!!S.finvizData[normalizeTicker(st.t)];
       var hasLiveQuote=!!(st.live&&(st.p||st.live.change!=null||st.live.mom!=null||st.live.beta!=null));
       var hasLiveFund=!!(st.live&&(st.live.pe!=null||st.live.pb!=null||st.live.roe!=null||st.live.fcfYield!=null||st.live.lossMarker));
       return [st.t,'"'+String(st.n||'').replace(/"/g,"'")+'"',st.r,st.s,providerGapBucket(st),cov.short,(st.realFundCount||0),hasLiveQuote?"yes":"no",hasLiveFund?"yes":"no",hasStored?"yes":"no",S.provider,(st.p!=null?st.p:""),(st.mc!=null?st.mc:"")].join(",");
@@ -2260,9 +2364,9 @@ function renderSettings(){
     reader.onload=function(ev){
       var res=parseFinvizCSV(ev.target.result);
       if(res.count===0){alert("Could not parse CSV. Make sure you downloaded the full Finviz export.");fvFileInput.value="";return;}
-      S.finvizData=res.data;S.finvizTs=Date.now();
+      S.finvizData=normalizeFundamentalMap(res.data);S.finvizTs=Date.now();
       try{
-        var compact={};Object.keys(res.data).forEach(function(tk){var d=res.data[tk],c={};Object.keys(d).forEach(function(k){if(d[k]!=null)c[k]=d[k]});if(Object.keys(c).length)compact[tk]=c;});
+        var compact={};Object.keys(S.finvizData).forEach(function(tk){var d=S.finvizData[tk],c={};Object.keys(d).forEach(function(k){if(d[k]!=null)c[k]=d[k]});if(Object.keys(c).length)compact[tk]=c;});
         localStorage.setItem("mexxie_finviz_data",JSON.stringify(compact));
         localStorage.setItem("mexxie_finviz_ts",String(S.finvizTs));
       }catch(err){console.warn("localStorage full:",err.message);}
