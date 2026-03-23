@@ -1621,7 +1621,10 @@ function renderScreener(){
   if(ranked.length){
     var dbg=h("div",{style:{margin:"0 0 12px",padding:"10px 12px",borderRadius:"10px",background:t.surface,border:"1px solid "+t.border,fontSize:"11px",color:t.ts,lineHeight:"1.6",fontFamily:"'JetBrains Mono',monospace"}});
     dbg.appendChild(h("div",{style:{fontWeight:"700",color:t.text,marginBottom:"4px"}},"Debug: Top Ranked Scores"));
-    ranked.slice(0,3).forEach(function(st){dbg.appendChild(h("div",null,st.t+" · final="+st.comp+" · base="+((st.sc&&st.sc._debug&&st.sc._debug.baseComp)!=null?st.sc._debug.baseComp:"?")+" · cov="+((st.sc&&st.sc._debug&&st.sc._debug.covCount)!=null?st.sc._debug.covCount:"?")))});
+    ranked.slice(0,3).forEach(function(st){
+      var lv=st.live||{};
+      dbg.appendChild(h("div",null,st.t+" · final="+st.comp+" · base="+((st.sc&&st.sc._debug&&st.sc._debug.baseComp)!=null?st.sc._debug.baseComp:"?")+" · cov="+((st.sc&&st.sc._debug&&st.sc._debug.covCount)!=null?st.sc._debug.covCount:"?")+" · liveDY="+(lv.divYield!=null?lv.divYield:"-")+" · liveROE="+(lv.roe!=null?lv.roe:"-")+" · livePB="+(lv.pb!=null?lv.pb:"-")+" · livePE="+(lv.pe!=null?lv.pe:"-")));
+    });
     f.appendChild(dbg);
   }
   // Enhancement: warn when cap filter excludes stocks with unknown market cap
