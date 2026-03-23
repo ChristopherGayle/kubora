@@ -1256,7 +1256,7 @@ function getRanked(){
     var confidenceMult=cov.count===0?0.58:cov.count===1?0.68:cov.count===2?0.78:cov.count===3?0.88:1;
     var finalComp=Math.min(100,(+baseComp+bonus)*confidenceMult).toFixed(1);
     return{t:st.t,n:st.n,s:st.s,p:st.p,mc:st.mc,r:st.r,co:st.co,sc:sc,comp:finalComp,live:st.live||false,consensus:cats,realFundCount:cov.count};
-  });
+  }).filter(Boolean);
   if(S.strictCoverage)arr=arr.filter(function(st){var k=coverageMeta(st).key;return k==="high"||k==="medium"});
   if(S.coverageFilter&&S.coverageFilter!=="all")arr=arr.filter(function(st){return coverageMeta(st).key===S.coverageFilter});
   arr.sort(function(a,b){var ca=+(a.realFundCount||0),cb=+(b.realFundCount||0);if(cb!==ca)return cb-ca;return b.comp-a.comp});
