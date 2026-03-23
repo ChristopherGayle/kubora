@@ -668,6 +668,55 @@ function applyProviderDataToStocks(symbolData){
     if(q.lossMarker)st.live.lossMarker=true;
   });
 }
+function unresolvedTickersForFinnhub(maxSymbols){
+  function hasFund(st){return !!(st.live&&(st.live.pe!=null||st.live.pb!=null||st.live.roe!=null||st.live.fcfYield!=null||st.live.debtEquity!=null))}
+  function suffixOf(t){var i=t.lastIndexOf('.');return i>=0?t.substring(i+1).toUpperCase():''}
+  function canLikelyResolve(st){
+    var t=normalizeTicker(st.t),sfx=suffixOf(t);
+    return !!(FMP_TICKERS[t]||!sfx||/^(L|PA|DE|MC|AS|SW|NS|AX|HK|JO|KS|KQ|T)$/.test(sfx));
+  }
+  function priority(st){
+    var t=normalizeTicker(st.t),sfx=suffixOf(t),score=0;
+    if(FMP_TICKERS[t])score+=120;
+    if(!sfx)score+=90;
+    if(/^(L|PA|DE|MC|AS|SW|NS|AX|HK|JO|KS|KQ|T)$/.test(sfx))score+=35;
+    if(st.mc>0)score+=20;
+    if(st.s&&st.s!=='Unknown'&&st.s!=='Other')score+=10;
+    if(st.r==='US')score+=18;
+    else if(st.r==='Europe')score+=12;
+    else if(st.r==='Asia')score+=6;
+    return score;
+  }
+  return ALL_STOCKS.filter(function(st){return !hasFund(st)&&canLikelyResolve(st)}).sort(function(a,b){return priority(b)-priority(a)||a.t.localeCompare(b.t)}).slice(0,maxSymbols||180).map(function(st){return normalizeTicker(st.t)});
+}
+async function fallbackFinnhubFundamentals(maxSymbols){
+  if(!S.finnhubKey||!API_AVAILABLE)return{updated:0,calls:0,errors:[]};
+  var tickers=unresolvedTickersForFinnhub(maxSymbols||180);
+  if(tickers.length===0)return{updated:0,calls:0,errors:[]};
+  try{
+    var r=await fetch(API_BASE+'/fundamentals',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tickers:tickers,token:S.finnhubKey})});
+    if(!r.ok){var bad=await r.json().catch(function(){return{}});return{updated:0,calls:1,errors:[bad.error||('HTTP '+r.status)]}};
+    var data=await r.json();
+    var updated=0;
+    Object.keys(data.results||{}).forEach(function(tk){
+      var fd=data.results[tk];if(!fd)return;
+      var nt=normalizeTicker(tk);
+      S.finvizData[nt]=Object.assign({},S.finvizData[nt]||{},fd);
+      var st=ALL_STOCKS.find(function(x){return normalizeTicker(x.t)===nt});
+      if(st){
+        if(!st.live)st.live={};
+        if(fd.pe!=null)st.live.pe=fd.pe;
+        if(fd.pb!=null)st.live.pb=fd.pb;
+        if(fd.roe!=null)st.live.roe=fd.roe;
+        if(fd.dy!=null)st.live.divYield=Math.min(0.25,fd.dy/100);
+        if(fd.de!=null)st.live.debtEquity=fd.de;
+      }
+      updated++;
+    });
+    if(updated>0){S.finvizTs=Date.now();persistFundData();}
+    return{updated:updated,calls:1,errors:data.rateLimited?['Finnhub rate limited during fundamentals refresh']:[]};
+  }catch(e){return{updated:0,calls:1,errors:['Finnhub fundamentals: '+e.message]};}
+}
 
 async function fallbackFMPForMissing(maxSymbols){
   if(!S.apiKey)return{updated:0,calls:0,errors:[]};
@@ -1043,9 +1092,16 @@ async function fetchEODHDLive(){
     });
 
     var chainParts=[];
+    if(S.finnhubKey&&API_AVAILABLE){
+      setMsg("EODHD quotes complete. Running Finnhub fundamentals fallback...");
+      var fh=await fallbackFinnhubFundamentals(180);
+      callCount+=fh.calls||0;
+      if(fh.errors&&fh.errors.length)errors=errors.concat(fh.errors);
+      if(fh.updated>0)chainParts.push("Finnhub "+fh.updated);
+    }
     if(S.apiKey){
-      setMsg("EODHD complete. Running FMP fallback for unresolved fundamentals...");
-      var fb1=await fallbackFMPForMissing(220);
+      setMsg("Running FMP fallback for remaining unresolved fundamentals...");
+      var fb1=await fallbackFMPForMissing(250);
       callCount+=fb1.calls||0;
       if(fb1.errors&&fb1.errors.length)errors=errors.concat(fb1.errors);
       if(fb1.updated>0)chainParts.push("FMP "+fb1.updated);
