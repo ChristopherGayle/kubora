@@ -504,7 +504,7 @@ function genSc(idx){
   var shortInt=+(s(28)*30).toFixed(1);
   var beta=+(0.4+s(29)*1.8).toFixed(2); // simulated beta 0.4–2.2
   var result={
-    g:{ey:+(5+s(1)*20).toFixed(1),roic:+(8+s(2)*40).toFixed(1),rk:Math.floor(s(3)*100)+1,evEbit:evEbit},
+    g:{ey:+(5+s(1)*20).toFixed(1),roic:+(8+s(2)*40).toFixed(1),rk:Math.floor(s(3)*100)+1,evEbit:evEbit,hasRealEvEbit:false},
     t:{pb:+(0.5+s(4)*3.5).toFixed(2),ins:s(5)>0.5,dy:+(0.5+s(6)*5).toFixed(1),fcf:+(2+s(7)*12).toFixed(1),shY:shY},
     m:{moat:Math.floor(s(8)*5)+1,qual:+(60+s(9)*40).toFixed(0),mgmt:+(50+s(10)*50).toFixed(0),revQ:revQ},
     s:{mom:+(30+s(11)*70).toFixed(0),mr:s(12)>0.4?"Long":"Neutral",sa:+(40+s(13)*60).toFixed(0),rsi:rsi,shortInt:shortInt,beta:beta},
@@ -516,7 +516,7 @@ function genSc(idx){
 }
 function comp(sc,w){
   function clamp01(v){return Math.max(0,Math.min(1,v||0))}
-  var evScore=clamp01((25-Math.max(0,+sc.g.evEbit||0))/25);
+  var evScore=sc.g&&sc.g.hasRealEvEbit?clamp01((25-Math.max(0,+sc.g.evEbit||0))/25):0;
   var g=clamp01((sc.g.ey/25*35+sc.g.roic/48*35+(100-sc.g.rk)/100*20+evScore*10)/100);
   var tv=clamp01(((4-Math.min(sc.t.pb,4))/4*20+(sc.t.ins?20:0)+sc.t.dy/5.5*20+sc.t.fcf/14*20+sc.t.shY/15*20)/100);
   var m=clamp01((sc.m.moat/5*35+sc.m.qual/100*30+sc.m.mgmt/100*20+sc.m.revQ/8*15)/100);
@@ -926,7 +926,7 @@ async function refreshStoredFundamentalsFromProvider(){
   await fetchLive();
   var imported=0;ALL_STOCKS.forEach(function(st){var d=liveToStoredFund(st);if(d){S.finvizData[normalizeTicker(st.t)]=d;imported++;}});
   S.finvizTs=Date.now();persistFundData();
-  return {imported:imported,total:ALL_STOCKS.length,missing:Math.max(0,ALL_STOCKS.length-imported)};
+  return {imported:imported,total:ALL_STOCKS.length,missing:Math.max(0,ALL_STOCKS.length-imported),providerSummary:S.lastProviderSummary||"",errors:(S.lastErrors||[]).slice(0,3)};
 }
 function u8ToB64(bytes){var bin="";bytes.forEach(function(b){bin+=String.fromCharCode(b)});return btoa(bin)}
 function b64ToU8(str){var bin=atob(str),out=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)out[i]=bin.charCodeAt(i);return out}
@@ -1118,7 +1118,14 @@ async function fetchEODHDLive(){
 
     S.dataSeed=Math.floor(Math.random()*90000)+10000;
     S.lastRefresh=new Date();S.refreshCount=(S.refreshCount||0)+1;
-    S.lastSource=chainParts.length?("EODHD + "+chainParts.join(" + ")):"EODHD EOD";S.lastCalls=callCount;S.lastErrors=errors;
+    S.lastSource=chainParts.length?("Live · EODHD + "+chainParts.join(" + ")):"Live · EODHD Quotes";S.lastCalls=callCount;S.lastErrors=errors;
+    S.lastProviderSummary=(function(){
+      var bits=["EODHD quotes"];
+      if(typeof fh!=="undefined")bits.push("Finnhub fundamentals: "+(fh.updated||0));
+      if(typeof fb1!=="undefined")bits.push("FMP fallback: "+(fb1.updated||0)+(fb1.errors&&fb1.errors.length?" (quota/errors)":""));
+      if(typeof fb2!=="undefined")bits.push("Twelve fallback: "+(fb2.updated||0)+" quote matches");
+      return bits.join(" · ");
+    })();
   }catch(e){errors.push("Fatal: "+e.message);S.lastErrors=errors}
   S.loading=false;S.loadingMsg="";try{render()}catch(re){console.error("render error on load end:",re);try{document.getElementById("app").innerHTML="<div style='padding:40px;color:#ef4444'>Render error — please reload the page.<br><small>"+re.message+"</small></div>"}catch(x){}}
   persistScores();
@@ -1155,7 +1162,7 @@ async function fetchFMPLive(){
     }});
     ETFS.forEach(function(etf){var q=quoteMap[etf.t];if(q){if(q.change!=null)etf.mom=+q.change.toFixed(1);if(q.price)etf.lastPrice=q.price}});
     S.prior.forEach(function(pk){var sym=fmpTicker(pk.t);var q=quoteMap[sym];if(q&&q.price)pk.curr=+q.price.toFixed(2)});
-    S.dataSeed=Math.floor(Math.random()*90000)+10000;S.lastRefresh=new Date();S.refreshCount=(S.refreshCount||0)+1;S.lastSource="FMP Live";S.lastCalls=callCount;S.lastErrors=errors;
+    S.dataSeed=Math.floor(Math.random()*90000)+10000;S.lastRefresh=new Date();S.refreshCount=(S.refreshCount||0)+1;S.lastSource="Live · FMP";S.lastCalls=callCount;S.lastErrors=errors;S.lastProviderSummary="FMP quotes+ratios: "+Object.keys(quoteMap).length;
   }catch(e){errors.push("Fatal: "+e.message);S.lastErrors=errors}
   S.loading=false;S.loadingMsg="";render();persistScores();
 }
@@ -1180,7 +1187,7 @@ async function fetchFinnhubLive(){
     ALL_STOCKS.forEach(function(st){var sym=fmpTicker(st.t);var q=quoteMap[sym];if(q){if(q.price)st.p=+q.price.toFixed(2);if(q.mc)st.mc=+(q.mc/1000).toFixed(0);st.live={pb:q.pb,roe:q.roe,divYield:q.divYield,fcfYield:q.fcfYield,pe:q.pe,change:q.change,debtEquity:q.debtEquity}}});
     ETFS.forEach(function(etf){var q=quoteMap[etf.t];if(q){if(q.change!=null)etf.mom=+q.change.toFixed(1);if(q.price)etf.lastPrice=q.price}});
     S.prior.forEach(function(pk){var sym=fmpTicker(pk.t);var q=quoteMap[sym];if(q&&q.price)pk.curr=+q.price.toFixed(2)});
-    S.dataSeed=Math.floor(Math.random()*90000)+10000;S.lastRefresh=new Date();S.refreshCount=(S.refreshCount||0)+1;S.lastSource="Finnhub Live";S.lastCalls=callCount;S.lastErrors=errors;
+    S.dataSeed=Math.floor(Math.random()*90000)+10000;S.lastRefresh=new Date();S.refreshCount=(S.refreshCount||0)+1;S.lastSource="Live · Finnhub";S.lastCalls=callCount;S.lastErrors=errors;S.lastProviderSummary="Finnhub quotes+fundamentals: "+Object.keys(quoteMap).length;
   }catch(e){errors.push("Fatal: "+e.message);S.lastErrors=errors}
   S.loading=false;S.loadingMsg="";render();persistScores();
 }
@@ -1245,7 +1252,7 @@ var S={
   eodhKey:(function(){try{return localStorage.getItem("mexxie_eodh_key")||""}catch(e){return""}})(),
   finvizData:(function(){try{var d=localStorage.getItem("mexxie_finviz_data");return d?normalizeFundamentalMap(JSON.parse(d)):{}}catch(e){return{}}}()),
   finvizTs:(function(){try{return+localStorage.getItem("mexxie_finviz_ts")||null}catch(e){return null}}()),
-  loading:false,loadingMsg:"",lastSource:"Simulated",lastCalls:0,lastErrors:[],
+  loading:false,loadingMsg:"",lastSource:"Simulated",lastCalls:0,lastErrors:[],lastProviderSummary:"",
   expandedStock:null,
   capSize:(function(){try{return localStorage.getItem("mexxie_cap_size")||"all"}catch(e){return"all"}})(),
   coverageFilter:(function(){try{return localStorage.getItem("mexxie_coverage_filter")||"all"}catch(e){return"all"}})(),
@@ -2126,11 +2133,11 @@ function renderSettings(){
   // Strategy Weights
   var wc=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",marginBottom:"12px",maxWidth:"600px"}});
   wc.appendChild(h("h3",{style:{margin:"0 0 12px",fontSize:"15px",fontWeight:"600"}},"Strategy Weights"));
-  var wDesc={greenblatt:"Cheap stocks with high returns on capital",tweedy:"Deep value: low P/B, insider buying, dividends",munger:"Wide-moat quality companies at fair prices",simons:"Price momentum and statistical patterns",piotroski:"9-point financial health score",altman:"Bankruptcy risk filter (Z-Score)",rsi:"Avoid overbought entries, favor ideal zones",evEbit:"Enterprise value vs operating earnings",shYield:"Dividends + buybacks + debt paydown",revGrowth:"Consistent quarterly revenue growth",shortInt:"Moderate short interest as contrarian signal",druckenmiller:"Secular growth + macro momentum + quality entry (Druckenmiller)"};
+  var wDesc={greenblatt:"Cheap stocks with high returns on capital",tweedy:"Deep value: low P/B, insider buying, dividends",munger:"Wide-moat quality companies at fair prices",simons:"Price momentum and statistical patterns",piotroski:"9-point financial health score",altman:"Bankruptcy risk filter (Z-Score)",rsi:"Avoid overbought entries, favor ideal zones",evEbit:"EV/EBIT sleeve is inactive until real EV/EBIT data is available",shYield:"Dividends + buybacks + debt paydown",revGrowth:"Consistent quarterly revenue growth",shortInt:"Moderate short interest as contrarian signal",druckenmiller:"Secular growth + macro momentum + quality entry (Druckenmiller)"};
   [{k:"greenblatt",l:"Greenblatt Magic Formula"},{k:"tweedy",l:"Tweedy Browne Value"},
    {k:"munger",l:"Munger Quality"},{k:"simons",l:"Simons Quant"},
    {k:"piotroski",l:"Piotroski F-Score"},{k:"altman",l:"Altman Z-Score"},
-   {k:"rsi",l:"RSI Zone Filter"},{k:"evEbit",l:"EV/EBIT Acquirer's Multiple"},
+   {k:"rsi",l:"RSI Zone Filter"},{k:"evEbit",l:"EV/EBIT (inactive)"},
    {k:"shYield",l:"Shareholder Yield"},{k:"revGrowth",l:"Revenue Growth Consistency"},
    {k:"shortInt",l:"Short Interest Contrarian"},{k:"druckenmiller",l:"\uD83D\uDE80 Druckenmiller Growth"}].forEach(function(w){
     var d=h("div",{style:{marginBottom:"14px"}});
@@ -2439,10 +2446,10 @@ function renderSettings(){
 
   // ── Provider-driven stored fundamentals refresh ──
   (function(){
-    var providerLabel=S.provider==="eodhd"?"EODHD + FMP + Twelve fallback":S.provider==="fmp"?"FMP":"Finnhub";
+    var providerLabel=S.provider==="eodhd"?"EODHD quotes + Finnhub fundamentals + FMP/Twelve extras":S.provider==="fmp"?"FMP":"Finnhub";
     var autoDiv=h("div",{style:{marginBottom:"12px",padding:"10px 12px",background:t.bg,border:"1px solid "+t.accent+"55",borderRadius:"8px"}});
     autoDiv.appendChild(h("div",{style:{fontSize:"10px",fontWeight:"700",color:t.accent,letterSpacing:".5px",marginBottom:"4px"}},"🤖 PROVIDER REFRESH · "+providerLabel.toUpperCase()));
-    autoDiv.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,marginBottom:"8px",lineHeight:"1.5"}},"Stores real fundamentals from the selected provider flow for weekly reuse. Best coverage comes from EODHD with FMP and Twelve fallback."));
+    autoDiv.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,marginBottom:"8px",lineHeight:"1.5"}},"Stores real fundamentals from the selected provider flow for weekly reuse. Current best working stack is EODHD quotes plus Finnhub fundamentals, with FMP/Twelve used only as extra fallback when available."));
     var autoStatus=h("div",{style:{fontSize:"10px",color:t.ts,minHeight:"14px",marginBottom:"6px"}});
     autoDiv.appendChild(autoStatus);
     var autoBtn=h("button",{style:{
@@ -2453,7 +2460,10 @@ function renderSettings(){
       autoStatus.style.color="";
       autoBtn.disabled=true;autoBtn.style.opacity="0.6";autoBtn.textContent="⏳ Refreshing provider coverage...";
       refreshStoredFundamentalsFromProvider().then(function(summary){
-        autoStatus.textContent="✅ Stored real fundamentals for "+summary.imported.toLocaleString()+" / "+summary.total.toLocaleString()+" stocks. "+summary.missing.toLocaleString()+" still unresolved.";
+        var lines=["✅ Stored real fundamentals for "+summary.imported.toLocaleString()+" / "+summary.total.toLocaleString()+" stocks. "+summary.missing.toLocaleString()+" still unresolved."];
+        if(summary.providerSummary)lines.push(summary.providerSummary);
+        if(summary.errors&&summary.errors.length)lines.push("Notes: "+summary.errors.join(" · "));
+        autoStatus.textContent=lines.join(" ");
         autoStatus.style.color=summary.missing>0?"#f59e0b":"";
         render();
       }).catch(function(err){
