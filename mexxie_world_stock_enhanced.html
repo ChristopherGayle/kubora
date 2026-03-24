@@ -1987,7 +1987,7 @@ function renderSettings(){
     background:t.surface,color:t.tm,fontSize:"11px",fontWeight:"600",fontFamily:"inherit"
   },onClick:function(){
     try{localStorage.removeItem("mexxie_ratios_cache");localStorage.removeItem("mexxie_finnhub_cache");localStorage.removeItem("mexxie_api_key");localStorage.removeItem("mexxie_finnhub_key")}catch(e){}
-    S.apiKey="gi9xNO7CWDJhG2xupgJaO0wuarOBRUei";S.finnhubKey="d6ebj19r01qloir5vun0d6ebj19r01qloir5vung";
+    S.apiKey="";S.finnhubKey="";
     alert("All caches and keys cleared. Enter a new API key to continue.");render();
   }},"\uD83D\uDDD1 Clear All Cache");
   cacheRow.appendChild(clearBtn);
