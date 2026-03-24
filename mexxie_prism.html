@@ -567,6 +567,12 @@ function etfSc(e){var base=S.dataSeed||1;var jitter=(sR(base+e.t.charCodeAt(0))*
 function refreshData(){S.dataSeed=Math.floor(Math.random()*90000)+10000;S.lastRefresh=new Date();ALL_STOCKS.forEach(function(st){var pctChange=(Math.random()-0.48)*6;st.p=+(st.p*(1+pctChange/100)).toFixed(2)});ETFS.forEach(function(e){var momShift=(Math.random()-0.45)*3;e.mom=+(e.mom+momShift).toFixed(1)});S.prior.forEach(function(pk){var chg=(Math.random()-0.45)*4;pk.curr=+(pk.curr*(1+chg/100)).toFixed(2)});S.refreshCount=(S.refreshCount||0)+1;S.lastSource="Simulated";S.lastCalls=0;S.lastErrors=[];render();persistScores()}
 function fmtTime(d){if(!d)return"Never";var h=d.getHours(),m=d.getMinutes(),s=d.getSeconds();var ampm=h>=12?"PM":"AM";h=h%12||12;return h+":"+(m<10?"0":"")+m+":"+(s<10?"0":"")+s+" "+ampm}
 function fmtDate(d){if(!d)return"";var months=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];return months[d.getMonth()]+" "+d.getDate()+", "+d.getFullYear()}
+function dataSnapshotMeta(){
+  var keys=Object.keys(S.finvizData||{}).sort();
+  var sample=keys.slice(0,25).join('|');
+  var hash=0;for(var i=0;i<sample.length;i++)hash=((hash<<5)-hash+sample.charCodeAt(i))|0;
+  return {stored:keys.length,ts:S.finvizTs?new Date(S.finvizTs):null,hash:Math.abs(hash).toString(36).toUpperCase().slice(0,6)||"EMPTY",provider:S.lastSource||S.provider||"Simulated"};
+}
 function batchArray(arr,size){var r=[];for(var i=0;i<arr.length;i+=size)r.push(arr.slice(i,i+size));return r}
 // ===================== API =====================
 // EODHD in-memory bulk cache — avoids re-fetching within 15 minutes of a Live Refresh
@@ -2470,6 +2476,8 @@ function renderSettings(){
     fvStatusColor=t.ts;
   }
   fvSec.appendChild(h("div",{style:{fontSize:"11px",color:fvStatusColor,marginBottom:"12px",lineHeight:"1.5"}},fvStatus));
+  var snap=dataSnapshotMeta();
+  fvSec.appendChild(h("div",{style:{fontSize:"10px",color:t.tm,marginBottom:"10px",lineHeight:"1.5",padding:"8px 10px",background:t.bg,border:"1px solid "+t.border,borderRadius:"8px"}},"Snapshot: "+snap.stored.toLocaleString()+" stored fundamentals · "+(snap.ts?(fmtDate(snap.ts)+" "+fmtTime(snap.ts)):"Never")+" · Fingerprint "+snap.hash+" · Last source "+snap.provider));
 
   // ── Provider-driven stored fundamentals refresh ──
   (function(){
