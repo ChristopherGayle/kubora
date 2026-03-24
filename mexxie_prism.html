@@ -307,6 +307,49 @@ async function persistPick(action,pick,data){
     else if(action==='delete')await fetch(API_BASE+'/picks/'+pick.t,{method:'DELETE'});
   }catch(e){}
 }
+// Load stored fundamentals from backend DB (source of truth).
+// Merges into S.finvizData so all browsers share the same dataset regardless of
+// which browser ran the last refresh or Finviz import.
+async function loadFundamentalsFromBackend(){
+  if(!API_AVAILABLE)return 0;
+  try{
+    var r=await fetch(API_BASE+'/fundamentals',{signal:AbortSignal.timeout(15000)});
+    if(!r.ok)return 0;
+    var d=await r.json();
+    if(!d||!d.results||!Object.keys(d.results).length)return 0;
+    var normalized=normalizeFundamentalMap(d.results);
+    var count=Object.keys(normalized).length;
+    // Backend is source of truth — overwrite localStorage snapshot
+    Object.assign(S.finvizData,normalized);
+    if(d.ts&&(!S.finvizTs||d.ts>S.finvizTs))S.finvizTs=d.ts;
+    // Update localStorage cache so offline/reload is fast
+    try{
+      var compact={};
+      Object.keys(S.finvizData).forEach(function(tk){var fd=S.finvizData[tk],c={};Object.keys(fd).forEach(function(k){if(fd[k]!=null)c[k]=fd[k]});if(Object.keys(c).length)compact[tk]=c;});
+      localStorage.setItem('mexxie_finviz_data',JSON.stringify(compact));
+      localStorage.setItem('mexxie_finviz_ts',String(S.finvizTs||Date.now()));
+    }catch(e){}
+    console.log('[mexxie] Loaded '+count+' fundamentals from backend DB');
+    return count;
+  }catch(e){
+    console.log('[mexxie] Backend fundamentals load skipped:',e.message);
+    return 0;
+  }
+}
+// Push a fundamentals map to the backend DB (fire-and-forget).
+// Called after Finviz CSV import or provider refresh so other browsers benefit immediately.
+function pushFundamentalsToBackend(fundamentalsMap,source){
+  if(!API_AVAILABLE||!fundamentalsMap||!Object.keys(fundamentalsMap).length)return;
+  fetch(API_BASE+'/fundamentals/store',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({fundamentals:fundamentalsMap,source:source||'frontend'})
+  }).then(function(r){return r.json();}).then(function(d){
+    if(d&&d.stored!=null)console.log('[mexxie] Saved '+d.stored+'/'+d.total+' fundamentals to backend DB ('+source+')');
+  }).catch(function(e){
+    console.warn('[mexxie] Backend fundamentals push failed:',e.message);
+  });
+}
 // ===================== STOCK DATA =====================
 var REGION_MAP={"Worldwide":null,"US":"\uD83C\uDDFA\uD83C\uDDF8","Europe":"\uD83C\uDDEA\uD83C\uDDFA","Asia":"\uD83C\uDF0F","S. America":"\uD83C\uDDE7\uD83C\uDDF7","Africa":"\uD83C\uDDFF\uD83C\uDDE6"};
 var REGIONS=Object.keys(REGION_MAP);
@@ -951,6 +994,8 @@ async function refreshStoredFundamentalsFromProvider(){
   await fetchLive();
   var imported=0;ALL_STOCKS.forEach(function(st){var d=liveToStoredFund(st);if(d){S.finvizData[normalizeTicker(st.t)]=d;imported++;}});
   S.finvizTs=Date.now();persistFundData();
+  // Push refreshed fundamentals to backend DB so all browsers benefit
+  pushFundamentalsToBackend(S.finvizData,S.provider||'provider');
   var evActiveCount=ALL_STOCKS.filter(function(st){return evEbitMeta(st).active}).length;
   S.lastProviderCounts=Object.assign({},S.lastProviderCounts||{},{evEbitActive:evActiveCount});
   return {imported:imported,total:ALL_STOCKS.length,missing:Math.max(0,ALL_STOCKS.length-imported),providerSummary:S.lastProviderSummary||"",providerCounts:S.lastProviderCounts||{},errors:(S.lastErrors||[]).slice(0,3)};
@@ -2469,10 +2514,13 @@ function renderSettings(){
   var fvStatus,fvStatusColor;
   if(fvCount>0&&S.finvizTs){
     var fvAgeTag=fvDaysAgo>=7?" · ⚠️ Refresh recommended":fvDaysAgo>=3?" · ⏰ Getting stale":"";
-    fvStatus="✅ "+fvCount.toLocaleString()+" / "+fvUniverse.toLocaleString()+" stocks with stored real fundamentals · "+fvMissing.toLocaleString()+" unresolved · imported "+fvDaysAgo+"d ago"+fvAgeTag;
+    var fvSrc=API_AVAILABLE?" · source: DB + cache":" · source: local cache only";
+    fvStatus="✅ "+fvCount.toLocaleString()+" / "+fvUniverse.toLocaleString()+" stocks with stored real fundamentals · "+fvMissing.toLocaleString()+" unresolved · "+fvDaysAgo+"d ago"+fvAgeTag+fvSrc;
     fvStatusColor=fvDaysAgo>=7?t.sell:fvDaysAgo>=3?"#f59e0b":t.buy;  // red ≥7d, amber ≥3d, green
   }else{
-    fvStatus="⚡ Use your selected provider stack to store real fundamentals weekly. Manual Finviz CSV import remains available for US-only enrichment.";
+    fvStatus=API_AVAILABLE
+      ?"⚡ No fundamentals stored yet. Click Refresh Stored Fundamentals or import a Finviz CSV — data saves to DB so all browsers share it."
+      :"⚡ Use your selected provider stack to store real fundamentals weekly. Manual Finviz CSV import remains available for US-only enrichment.";
     fvStatusColor=t.ts;
   }
   fvSec.appendChild(h("div",{style:{fontSize:"11px",color:fvStatusColor,marginBottom:"12px",lineHeight:"1.5"}},fvStatus));
@@ -2565,6 +2613,8 @@ function renderSettings(){
         localStorage.setItem("mexxie_finviz_data",JSON.stringify(compact));
         localStorage.setItem("mexxie_finviz_ts",String(S.finvizTs));
       }catch(err){console.warn("localStorage full:",err.message);}
+      // Push to backend DB so all browsers (Safari, Brave, Chrome) share this dataset
+      pushFundamentalsToBackend(res.data,'finviz');
       fvFileInput.value="";
       render();
       // Auto-simulate to apply
@@ -2701,7 +2751,9 @@ function renderFatalError(err){
     await checkAPI();
     console.log('API available:',API_AVAILABLE);
     if(API_AVAILABLE){
-      await Promise.all([loadStockUniverse(),loadPriorPicks()]);
+      // Load stocks, picks, and stored fundamentals from DB in parallel.
+      // Fundamentals load first so the initial render has real data.
+      await Promise.all([loadStockUniverse(),loadPriorPicks(),loadFundamentalsFromBackend()]);
     }
     render();
     // Async: load market valuation

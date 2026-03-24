@@ -195,7 +195,22 @@ async function migrate() {
       etf_symbol VARCHAR(20), consensus VARCHAR(20),
       cape_signal VARCHAR(20), buffett_signal VARCHAR(20), erp_signal VARCHAR(20)
     )`,
-    `CREATE INDEX IF NOT EXISTS idx_valuation_region ON prism_market_valuation(region, ts DESC)`
+    `CREATE INDEX IF NOT EXISTS idx_valuation_region ON prism_market_valuation(region, ts DESC)`,
+
+    // Canonical fundamentals store — one row per ticker, updated_at tracks freshness
+    // Backend is the source of truth; localStorage is a client-side cache only
+    `CREATE TABLE IF NOT EXISTS prism_fundamentals (
+      ticker VARCHAR(20) PRIMARY KEY,
+      pe DOUBLE PRECISION, pb DOUBLE PRECISION, dy DOUBLE PRECISION,
+      roe DOUBLE PRECISION, roa DOUBLE PRECISION, de DOUBLE PRECISION,
+      cr DOUBLE PRECISION, gm DOUBLE PRECISION, om DOUBLE PRECISION, nm DOUBLE PRECISION,
+      eg DOUBLE PRECISION, sg DOUBLE PRECISION, eqg DOUBLE PRECISION,
+      io DOUBLE PRECISION, si DOUBLE PRECISION, fcf DOUBLE PRECISION,
+      ev_ebit DOUBLE PRECISION, enterprise_value DOUBLE PRECISION, ebit_per_share DOUBLE PRECISION,
+      provider VARCHAR(50),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_fundamentals_updated ON prism_fundamentals(updated_at DESC)`
   ];
 
   for (const ddl of tables) {

@@ -403,6 +403,9 @@ function fmtDate(d){
 
 // ===================== FMP LIVE DATA =====================
 var FMP_BASE="https://financialmodelingprep.com/stable";
+// Railway backend — shared source of truth for fundamentals across all browsers
+var API_BASE=(function(){try{var s=localStorage.getItem('mexxie_api_url');if(s&&s.trim())return s.trim().replace(/\/$/,'')+'/api';}catch(e){}return window.location.hostname==='localhost'||window.location.hostname==='127.0.0.1'?'http://localhost:3001/api':'https://kubora-production.up.railway.app/api';})();
+var API_AVAILABLE=false;
 // Mapping of our tickers to FMP-compatible symbols (most are same, some international need mapping)
 var FMP_TICKERS={
   // US stocks work as-is
@@ -532,8 +535,9 @@ async function fetchFMPLive(){
       }
     }
 
-    // Save ratios cache to localStorage
+    // Save ratios cache to localStorage and push to backend DB (FMP values are decimals → pct)
     try{localStorage.setItem("mexxie_ratios_cache",JSON.stringify({ts:Date.now(),data:ratiosCache}))}catch(e){/* ignore */}
+    pushCacheToBackend(ratiosCache,true,'fmp');
 
     // Merge cached ratios into quoteMap
     Object.keys(ratiosCache).forEach(function(tk){
@@ -695,8 +699,9 @@ async function fetchFinnhubLive(){
       }
     }
 
-    // Save metrics cache
+    // Save metrics cache and push to backend DB (Finnhub values already in % → no conversion)
     try{localStorage.setItem("mexxie_finnhub_cache",JSON.stringify({ts:Date.now(),data:metricsCache}))}catch(e){}
+    pushCacheToBackend(metricsCache,false,'finnhub_legacy');
 
     // Merge cached metrics into quoteMap
     Object.keys(metricsCache).forEach(function(tk){
@@ -1003,8 +1008,10 @@ var S={
   numPicks:8,sector:"All",
   dataSeed:42,lastRefresh:new Date(),refreshCount:0,
   provider:(function(){try{return localStorage.getItem("mexxie_provider")||"finnhub"}catch(e){return"finnhub"}})(),
-  apiKey:(function(){try{return localStorage.getItem("mexxie_api_key")||"gi9xNO7CWDJhG2xupgJaO0wuarOBRUei"}catch(e){return"gi9xNO7CWDJhG2xupgJaO0wuarOBRUei"}})(),
-  finnhubKey:(function(){try{return localStorage.getItem("mexxie_finnhub_key")||"d6ebj19r01qloir5vun0d6ebj19r01qloir5vung"}catch(e){return"d6ebj19r01qloir5vun0d6ebj19r01qloir5vung"}})(),
+  apiKey:(function(){try{return localStorage.getItem("mexxie_api_key")||""}catch(e){return""}})(),
+  finnhubKey:(function(){try{return localStorage.getItem("mexxie_finnhub_key")||""}catch(e){return""}})(),
+  finvizData:(function(){try{var d=localStorage.getItem("mexxie_finviz_data");return d?JSON.parse(d):{}}catch(e){return{}}}()),
+  finvizTs:(function(){try{return+localStorage.getItem("mexxie_finviz_ts")||null}catch(e){return null}}()),
   loading:false,loadingMsg:"",lastSource:"Simulated",lastCalls:0,lastErrors:[],
   prior:[
     {t:"MSFT",n:"Microsoft Corp.",co:"\uD83C\uDDFA\uD83C\uDDF8",date:"2025-09-15",entry:398.2,curr:445.2,act:null},
@@ -1017,6 +1024,43 @@ var S={
 };
 
 function T(){return THEMES[S.theme]}
+// ── Backend DB fundamentals helpers ──────────────────────────────────────────
+async function checkAndLoadFromBackend(){
+  try{var r=await fetch(API_BASE+'/health',{signal:AbortSignal.timeout(3000)});var d=await r.json();API_AVAILABLE=d.status==='ok'||d.status==='degraded';}catch(e){API_AVAILABLE=false;}
+  if(!API_AVAILABLE)return 0;
+  try{
+    var r2=await fetch(API_BASE+'/fundamentals',{signal:AbortSignal.timeout(15000)});
+    if(!r2.ok)return 0;
+    var d2=await r2.json();
+    if(!d2||!d2.results||!Object.keys(d2.results).length)return 0;
+    var count=0;
+    Object.keys(d2.results).forEach(function(tk){if(d2.results[tk]){S.finvizData[tk.toUpperCase()]=d2.results[tk];count++;}});
+    if(d2.ts&&(!S.finvizTs||d2.ts>S.finvizTs))S.finvizTs=d2.ts;
+    try{localStorage.setItem("mexxie_finviz_data",JSON.stringify(S.finvizData));localStorage.setItem("mexxie_finviz_ts",String(S.finvizTs||Date.now()));}catch(e){}
+    console.log('[mexxie] Loaded '+count+' fundamentals from backend DB');
+    return count;
+  }catch(e){return 0;}
+}
+// Translate ratiosCache/metricsCache → our finviz format and push to backend DB
+// fmpStyleDecimal=true when values are FMP decimals (roe=0.15 means 15%), false for Finnhub % (roe=15 means 15%)
+function pushCacheToBackend(cache,fmpStyleDecimal,source){
+  if(!API_AVAILABLE||!cache)return;
+  function pct(v){return(v!=null&&!isNaN(+v))?+(+v*(fmpStyleDecimal?100:1)).toFixed(2):null;}
+  function num(v){return(v!=null&&!isNaN(+v))?+v:null;}
+  var toStore={};
+  ALL_STOCKS.forEach(function(st){
+    var sym=fmpTicker(st.t);
+    var c=cache[sym];
+    if(!c)return;
+    toStore[st.t]={pe:num(c.pe),pb:num(c.pb),dy:pct(c.divYield),roe:pct(c.roe),de:num(c.debtEquity),fcf:num(c.fcfYield),_src:source||'legacy'};
+  });
+  if(!Object.keys(toStore).length)return;
+  fetch(API_BASE+'/fundamentals/store',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({fundamentals:toStore,source:source||'legacy'})
+  }).then(function(r){return r.json();}).then(function(d){
+    if(d&&d.stored!=null)console.log('[mexxie] Saved '+d.stored+'/'+d.total+' fundamentals to backend DB ('+source+')');
+  }).catch(function(e){console.warn('[mexxie] Backend push failed:',e.message);});
+}
 
 function getRanked(){
   var nw=nW();
@@ -1999,12 +2043,15 @@ function renderFooter(){
   return ft;
 }
 
-render();
-
-// Auto-fetch market valuation if cache is expired or empty (monthly refresh)
-if(!S.marketVal&&S.finnhubKey){
-  fetchMarketValuation(false).then(function(r){if(r){S.marketVal=r;render()}});
-}
+(async function(){
+  // Load shared fundamentals from backend DB so all browsers start with real data
+  try{await checkAndLoadFromBackend();}catch(e){}
+  render();
+  // Auto-fetch market valuation if cache is expired or empty (monthly refresh)
+  if(!S.marketVal&&S.finnhubKey){
+    fetchMarketValuation(false).then(function(r){if(r){S.marketVal=r;render()}});
+  }
+})();
 
 // Register PWA Service Worker
 if('serviceWorker' in navigator){

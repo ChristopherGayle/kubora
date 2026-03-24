@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
+const db = require('../db');
 
 // Maps Mexxie app tickers → Finnhub/FMP US-listed symbols
-// Non-US stocks are mapped to their ADR equivalents (same as FMP_TICKERS in frontend)
 const TICKER_MAP = {
   // European ADRs
   'NOVO-B': 'NVO',    'ROG':    'RHHBY',  'NESN':   'NSRGY',  'MC':     'LVMHF',
@@ -35,24 +35,23 @@ function safeNum(v) {
 }
 
 // Finnhub metric → finvizData field mapping
-// Finnhub already returns PE, margins, ROE, ROA as real numbers / percentages
 function mapMetrics(m) {
   if (!m) return null;
   return {
     pe:  safeNum(m.peTTM),
     pb:  safeNum(m.pb || m.pbQuarterly),
-    dy:  safeNum(m.currentDividendYieldTTM),             // already in % (e.g. 0.40 = 0.40%)
-    roe: safeNum(m.roeRfy),                              // already in %
-    roa: safeNum(m.roaRfy),                              // already in %
-    gm:  safeNum(m.grossMarginAnnual || m.grossMargin5Y), // already in %
-    om:  safeNum(m.operatingMarginTTM),                  // already in %
-    nm:  safeNum(m.netProfitMarginAnnual || m.netProfitMarginTTM), // already in %
-    de:  safeNum(m['longTermDebt/equityAnnual']),         // ratio
-    cr:  safeNum(m.currentRatioAnnual),                  // ratio
-    eg:  safeNum(m.epsGrowthQuarterlyYoy),               // already in %
-    sg:  safeNum(m.revenueGrowth5Y),                     // already in %
-    io:  null,  // not available in free Finnhub tier
-    si:  null,  // not available in free Finnhub tier
+    dy:  safeNum(m.currentDividendYieldTTM),
+    roe: safeNum(m.roeRfy),
+    roa: safeNum(m.roaRfy),
+    gm:  safeNum(m.grossMarginAnnual || m.grossMargin5Y),
+    om:  safeNum(m.operatingMarginTTM),
+    nm:  safeNum(m.netProfitMarginAnnual || m.netProfitMarginTTM),
+    de:  safeNum(m['longTermDebt/equityAnnual']),
+    cr:  safeNum(m.currentRatioAnnual),
+    eg:  safeNum(m.epsGrowthQuarterlyYoy),
+    sg:  safeNum(m.revenueGrowth5Y),
+    io:  null,
+    si:  null,
     enterpriseValue: safeNum(m.enterpriseValue),
     ebitPerShare: safeNum(m.ebitPerShareTTM || m.ebitPerShareAnnual),
     marketCap: safeNum(m.marketCapitalization),
@@ -60,9 +59,150 @@ function mapMetrics(m) {
   };
 }
 
+// ── DB helpers ────────────────────────────────────────────────────────────────
+
+// Numeric columns stored in prism_fundamentals (order matters for fdToParams)
+const FUND_COLS = [
+  'pe','pb','dy','roe','roa','de','cr','gm','om','nm',
+  'eg','sg','eqg','io','si','fcf',
+  'ev_ebit','enterprise_value','ebit_per_share'
+];
+
+// Convert a DB row → frontend fundamentals object (camelCase where needed)
+function rowToFd(row) {
+  const fd = {};
+  const rename = { ev_ebit: 'evEbit', enterprise_value: 'enterpriseValue', ebit_per_share: 'ebitPerShare' };
+  FUND_COLS.forEach(col => {
+    if (row[col] != null) fd[rename[col] || col] = row[col];
+  });
+  if (row.provider) fd._src = row.provider;
+  return fd;
+}
+
+// Extract ordered param array for a fundamentals object
+function fdToParams(ticker, fd, source) {
+  return [
+    ticker,
+    safeNum(fd.pe),
+    safeNum(fd.pb),
+    safeNum(fd.dy),
+    safeNum(fd.roe),
+    safeNum(fd.roa),
+    safeNum(fd.de),
+    safeNum(fd.cr),
+    safeNum(fd.gm),
+    safeNum(fd.om),
+    safeNum(fd.nm),
+    safeNum(fd.eg),
+    safeNum(fd.sg),
+    safeNum(fd.eqg),
+    safeNum(fd.io),
+    safeNum(fd.si),
+    safeNum(fd.fcf),
+    safeNum(fd.evEbit != null ? fd.evEbit : fd.ev_ebit),
+    safeNum(fd.enterpriseValue != null ? fd.enterpriseValue : fd.enterprise_value),
+    safeNum(fd.ebitPerShare != null ? fd.ebitPerShare : fd.ebit_per_share),
+    source || fd._src || 'unknown',
+  ];
+}
+
+// Batch upsert fundamentals into DB (PostgreSQL only)
+// Uses COALESCE so existing non-null values are kept when new value is null
+async function upsertFundamentals(fundamentalsMap, source) {
+  if (!db.isPg) return 0;
+  const tickers = Object.keys(fundamentalsMap).filter(tk => tk && fundamentalsMap[tk]);
+  if (!tickers.length) return 0;
+
+  const ALL_COLS = ['ticker', ...FUND_COLS, 'provider'];
+  const UPSERT_SET = FUND_COLS
+    .map(c => `${c}=COALESCE(EXCLUDED.${c},prism_fundamentals.${c})`)
+    .join(',');
+
+  const BATCH = 50;
+  let stored = 0;
+
+  for (let i = 0; i < tickers.length; i += BATCH) {
+    const batch = tickers.slice(i, i + BATCH);
+    const params = [];
+    const rows = [];
+
+    for (const tk of batch) {
+      const vals = fdToParams(tk, fundamentalsMap[tk], source);
+      const start = params.length + 1;
+      params.push(...vals);
+      rows.push(`(${vals.map((_, j) => '$' + (start + j)).join(',')},NOW())`);
+    }
+
+    const sql = `
+      INSERT INTO prism_fundamentals (${ALL_COLS.join(',')},updated_at)
+      VALUES ${rows.join(',')}
+      ON CONFLICT (ticker) DO UPDATE SET
+        ${UPSERT_SET},
+        provider=COALESCE(EXCLUDED.provider,prism_fundamentals.provider),
+        updated_at=NOW()
+    `;
+
+    const result = await db.exec(sql, params);
+    if (result.ok) stored += batch.length;
+    else console.error('[fundamentals] batch upsert error:', result.error?.substring(0, 200));
+  }
+
+  return stored;
+}
+
+// ── Routes ────────────────────────────────────────────────────────────────────
+
+// GET /api/fundamentals
+// Returns all stored fundamentals from DB as { count, results: {TICKER: {...}}, ts }
+// Frontend uses this to hydrate S.finvizData on startup (backend = source of truth)
+router.get('/', async (req, res) => {
+  if (!db.isPg) {
+    return res.json({ count: 0, results: {}, ts: null });
+  }
+  try {
+    const result = await db.query(
+      `SELECT ticker, ${FUND_COLS.join(',')}, provider, updated_at
+       FROM prism_fundamentals
+       ORDER BY updated_at DESC`
+    );
+    if (!result.ok) return res.json({ count: 0, results: {}, ts: null });
+
+    const out = {};
+    let latest = null;
+    for (const row of result.rows) {
+      out[row.ticker] = rowToFd(row);
+      const t = new Date(row.updated_at);
+      if (!latest || t > latest) latest = t;
+    }
+    res.json({ count: result.rows.length, results: out, ts: latest ? latest.getTime() : null });
+  } catch (e) {
+    console.error('[fundamentals] GET error:', e.message);
+    res.json({ count: 0, results: {}, ts: null });
+  }
+});
+
+// POST /api/fundamentals/store
+// Body: { fundamentals: { TICKER: {...}, ... }, source: "finviz"|"eodhd"|... }
+// Called by frontend after Finviz CSV import or provider refresh to persist to DB
+router.post('/store', async (req, res) => {
+  if (!db.isPg) return res.json({ stored: 0, total: 0 });
+  const { fundamentals, source } = req.body;
+  if (!fundamentals || typeof fundamentals !== 'object') {
+    return res.status(400).json({ error: 'fundamentals object required' });
+  }
+  try {
+    const total = Object.keys(fundamentals).length;
+    const stored = await upsertFundamentals(fundamentals, source || 'frontend');
+    res.json({ stored, total });
+  } catch (e) {
+    console.error('[fundamentals] POST /store error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // POST /api/fundamentals
 // Body: { tickers: ["AAPL","NPN",...], token: "finnhub_api_key" }
-// Returns: { count, total, results: { AAPL: {...}, NPN: {...} } }
+// Fetches from Finnhub, saves non-null results to DB, returns results to caller
 router.post('/', async (req, res) => {
   const { tickers, token } = req.body;
   if (!Array.isArray(tickers) || tickers.length === 0) {
@@ -74,10 +214,9 @@ router.post('/', async (req, res) => {
 
   const FINNHUB_BASE = 'https://finnhub.io/api/v1';
   const results = {};
-  const BATCH = 5; // concurrent requests per wave
+  const BATCH = 5;
   let rateLimited = false;
 
-  // Fetch one ticker from Finnhub, with one retry on transient failure
   async function fetchOne(ticker, attempt = 0) {
     const sym = toFinnhub(ticker);
     const url = `${FINNHUB_BASE}/stock/metric?symbol=${encodeURIComponent(sym)}&metric=all&token=${token}`;
@@ -90,7 +229,6 @@ router.post('/', async (req, res) => {
       }
       if (!resp.ok) {
         if (attempt === 0) {
-          // Single retry after 500ms for transient errors
           await new Promise(r => setTimeout(r, 500));
           return fetchOne(ticker, 1);
         }
@@ -105,18 +243,25 @@ router.post('/', async (req, res) => {
   }
 
   for (let i = 0; i < tickers.length; i += BATCH) {
-    if (rateLimited) break; // Stop early if Finnhub is rate-limiting us
+    if (rateLimited) break;
     const batch = tickers.slice(i, i + BATCH);
     await Promise.allSettled(batch.map(t => fetchOne(t)));
-
-    // Courtesy delay between batches (Finnhub free tier = 60 calls/min)
     if (i + BATCH < tickers.length) {
       await new Promise(r => setTimeout(r, 250));
     }
   }
 
   const count = Object.values(results).filter(Boolean).length;
-  // Surface rate-limit status so frontend can show appropriate message
+
+  // Persist non-null results to DB so all browsers benefit (fire-and-forget)
+  if (count > 0) {
+    const toStore = {};
+    Object.keys(results).forEach(tk => { if (results[tk]) toStore[tk] = results[tk]; });
+    upsertFundamentals(toStore, 'finnhub').catch(e =>
+      console.error('[fundamentals] DB save error:', e.message)
+    );
+  }
+
   res.json({ count, total: tickers.length, results, rateLimited });
 });
 
