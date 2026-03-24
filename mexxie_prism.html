@@ -1147,7 +1147,7 @@ async function fetchEODHDLive(){
       if(typeof fb2!=="undefined")bits.push("Twelve quote matches: "+(fb2.updated||0));
       return bits.join(" · ");
     })();
-    S.lastProviderCounts={eodhdQuotes:Object.keys(quoteMap).length,finnhubFundamentals:(typeof fh!=="undefined"?(fh.updated||0):0),fmpFallback:(typeof fb1!=="undefined"?(fb1.updated||0):0),twelveFallback:(typeof fb2!=="undefined"?(fb2.updated||0):0)};
+    S.lastProviderCounts={eodhdQuotes:Object.keys(quoteMap).length,finnhubFundamentals:(typeof fh!=="undefined"?(fh.updated||0):0),fmpFallback:(typeof fb1!=="undefined"?(fb1.updated||0):0),twelveFallback:(typeof fb2!=="undefined"?(fb2.updated||0):0),evEbitActive:countActiveEvEbit()};
   }catch(e){errors.push("Fatal: "+e.message);S.lastErrors=errors}
   S.loading=false;S.loadingMsg="";try{render()}catch(re){console.error("render error on load end:",re);try{document.getElementById("app").innerHTML="<div style='padding:40px;color:#ef4444'>Render error — please reload the page.<br><small>"+re.message+"</small></div>"}catch(x){}}
   persistScores();
@@ -1184,7 +1184,7 @@ async function fetchFMPLive(){
     }});
     ETFS.forEach(function(etf){var q=quoteMap[etf.t];if(q){if(q.change!=null)etf.mom=+q.change.toFixed(1);if(q.price)etf.lastPrice=q.price}});
     S.prior.forEach(function(pk){var sym=fmpTicker(pk.t);var q=quoteMap[sym];if(q&&q.price)pk.curr=+q.price.toFixed(2)});
-    S.dataSeed=Math.floor(Math.random()*90000)+10000;S.lastRefresh=new Date();S.refreshCount=(S.refreshCount||0)+1;S.lastSource="Live · FMP";S.lastCalls=callCount;S.lastErrors=errors;S.lastProviderSummary="FMP quotes+ratios stored: "+Object.keys(quoteMap).length;S.lastProviderCounts={fmpDirect:Object.keys(quoteMap).length};
+    S.dataSeed=Math.floor(Math.random()*90000)+10000;S.lastRefresh=new Date();S.refreshCount=(S.refreshCount||0)+1;S.lastSource="Live · FMP";S.lastCalls=callCount;S.lastErrors=errors;S.lastProviderSummary="FMP quotes+ratios stored: "+Object.keys(quoteMap).length;S.lastProviderCounts={fmpDirect:Object.keys(quoteMap).length,evEbitActive:countActiveEvEbit()};
   }catch(e){errors.push("Fatal: "+e.message);S.lastErrors=errors}
   S.loading=false;S.loadingMsg="";render();persistScores();
 }
@@ -1209,7 +1209,7 @@ async function fetchFinnhubLive(){
     ALL_STOCKS.forEach(function(st){var sym=fmpTicker(st.t);var q=quoteMap[sym];if(q){if(q.price)st.p=+q.price.toFixed(2);if(q.mc)st.mc=+(q.mc/1000).toFixed(0);st.live={pb:q.pb,roe:q.roe,divYield:q.divYield,fcfYield:q.fcfYield,pe:q.pe,change:q.change,debtEquity:q.debtEquity,enterpriseValue:q.enterpriseValue,ebitPerShare:q.ebitPerShare,metricMarketCap:q.mc};var liveEvEbit=computeRealEvEbit(st);if(liveEvEbit!=null)st.live.evEbit=liveEvEbit;}});
     ETFS.forEach(function(etf){var q=quoteMap[etf.t];if(q){if(q.change!=null)etf.mom=+q.change.toFixed(1);if(q.price)etf.lastPrice=q.price}});
     S.prior.forEach(function(pk){var sym=fmpTicker(pk.t);var q=quoteMap[sym];if(q&&q.price)pk.curr=+q.price.toFixed(2)});
-    S.dataSeed=Math.floor(Math.random()*90000)+10000;S.lastRefresh=new Date();S.refreshCount=(S.refreshCount||0)+1;S.lastSource="Live · Finnhub";S.lastCalls=callCount;S.lastErrors=errors;S.lastProviderSummary="Finnhub quotes+fundamentals stored: "+Object.keys(quoteMap).length;S.lastProviderCounts={finnhubDirect:Object.keys(quoteMap).length};
+    S.dataSeed=Math.floor(Math.random()*90000)+10000;S.lastRefresh=new Date();S.refreshCount=(S.refreshCount||0)+1;S.lastSource="Live · Finnhub";S.lastCalls=callCount;S.lastErrors=errors;S.lastProviderSummary="Finnhub quotes+fundamentals stored: "+Object.keys(quoteMap).length;S.lastProviderCounts={finnhubDirect:Object.keys(quoteMap).length,evEbitActive:countActiveEvEbit()};
   }catch(e){errors.push("Fatal: "+e.message);S.lastErrors=errors}
   S.loading=false;S.loadingMsg="";render();persistScores();
 }
@@ -1434,6 +1434,7 @@ function sBar(v,mx,col){var t=T();var o=h("div",{style:{width:"100%",height:"6px
 function bdg(txt,col){var t=T();var c=col||t.accent;return h("span",{style:{display:"inline-block",padding:"2px 8px",borderRadius:"10px",fontSize:"10px",fontWeight:"600",background:c+"22",color:c,border:"1px solid "+c+"33",letterSpacing:".3px"}},txt)}
 function coverageMeta(st){var c=st&&st.realFundCount!=null?+(st.realFundCount||0):realCoverage(st).count;if(c>=6)return{key:"high",label:"Coverage: High",short:"High",color:"#10b981",hint:c+" real fields"};if(c>=3)return{key:"medium",label:"Coverage: Medium",short:"Medium",color:"#f59e0b",hint:c+" real fields"};if(c>=1)return{key:"low",label:"Coverage: Low",short:"Low",color:"#f97316",hint:c+" real fields"};return{key:"simulated",label:"Coverage: Simulated",short:"Simulated",color:"#ef4444",hint:"0 real fields"}}
 function evEbitMeta(st){var fd=S.finvizData[normalizeTicker(st.t)]||{};var v=fd.evEbit!=null?numOrNull(fd.evEbit):(st&&st.live&&st.live.evEbit!=null?numOrNull(st.live.evEbit):computeRealEvEbit(st));return(v!=null&&v>0)?{active:true,label:"EV/EBIT Real",color:"#14b8a6",value:v}:{active:false,label:"EV/EBIT Off",color:T().tm,value:null}}
+function countActiveEvEbit(){return ALL_STOCKS.filter(function(st){return evEbitMeta(st).active}).length}
 function sourceMeta(st){
   function nn(v){if(v==null||v==="")return null;var n=+v;return isNaN(n)?null:n}
   var hasStored=!!S.finvizData[normalizeTicker(st.t)];
@@ -2289,12 +2290,12 @@ function renderSettings(){
     twRow.appendChild(twInput);dc.appendChild(twRow);
     // What's included info
     var infoBox=h("div",{style:{padding:"10px 12px",background:t.accentGlow,border:"1px solid "+t.accent+"33",borderRadius:"8px",marginBottom:"14px"}});
-    infoBox.appendChild(h("div",{style:{fontSize:"11px",fontWeight:"600",color:t.accent,marginBottom:"4px"}},"\u2728 EODHD Data Enrichment"));
+    infoBox.appendChild(h("div",{style:{fontSize:"11px",fontWeight:"600",color:t.accent,marginBottom:"4px"}},"\u2728 EODHD Quote Enrichment"));
     infoBox.appendChild(h("div",{style:{fontSize:"10px",color:t.ts,lineHeight:"1.6"}},
       "\u2705 EOD Prices (OHLCV) \u00b7 \u2705 Market Cap \u00b7 \u2705 Beta\n"+
       "\u2705 EMA 50/200 day \u00b7 \u2705 52-Week High/Low\n"+
       "\u2705 Avg Volume (14d/50d/200d) \u00b7 \u2705 Dividend History\n"+
-      "\u274c Fundamentals (P/E, P/B, ROE) \u2014 use Finnhub/FMP first, then enrich with EODHD"));
+      "\u274c Fundamentals and EV/EBIT are not coming from EODHD here \u2014 they come from Finnhub or stored data first, with EODHD used mainly for quotes and technicals."));
     dc.appendChild(infoBox);
     var testRow0=h("div",{style:{display:"flex",gap:"8px",alignItems:"center",marginBottom:"14px"}});
     var testBtn0=h("button",{style:{
