@@ -406,7 +406,7 @@ function genSc(idx){
   var shortInt=+(s(28)*30).toFixed(1);
   var beta=+(0.4+s(29)*1.8).toFixed(2); // simulated beta 0.4–2.2
   var result={
-    g:{ey:+(5+s(1)*20).toFixed(1),roic:+(8+s(2)*40).toFixed(1),rk:Math.floor(s(3)*100)+1,evEbit:evEbit},
+    g:{ey:+(5+s(1)*20).toFixed(1),roic:+(8+s(2)*40).toFixed(1),rk:Math.floor(s(3)*100)+1,evEbit:evEbit,hasRealEvEbit:false},
     t:{pb:+(0.5+s(4)*3.5).toFixed(2),ins:s(5)>0.5,dy:+(0.5+s(6)*5).toFixed(1),fcf:+(2+s(7)*12).toFixed(1),shY:shY},
     m:{moat:Math.floor(s(8)*5)+1,qual:+(60+s(9)*40).toFixed(0),mgmt:+(50+s(10)*50).toFixed(0),revQ:revQ},
     s:{mom:+(30+s(11)*70).toFixed(0),mr:s(12)>0.4?"Long":"Neutral",sa:+(40+s(13)*60).toFixed(0),rsi:rsi,shortInt:shortInt,beta:beta},
@@ -417,9 +417,11 @@ function genSc(idx){
   return _cloneSc(result);
 }
 function comp(sc,w){
-  var g=(sc.g.ey/25*35+sc.g.roic/48*35+(100-sc.g.rk)/100*20+Math.max(0,(25-sc.g.evEbit)/25)*10)/100;
-  var tv=((4-Math.min(sc.t.pb,4))/4*20+(sc.t.ins?20:0)+sc.t.dy/5.5*20+sc.t.fcf/14*20+sc.t.shY/15*20)/100;
-  var m=(sc.m.moat/5*35+sc.m.qual/100*30+sc.m.mgmt/100*20+sc.m.revQ/8*15)/100;
+  function clamp01(v){return Math.max(0,Math.min(1,v||0))}
+  var evScore=sc.g&&sc.g.hasRealEvEbit?clamp01((25-Math.max(0,+sc.g.evEbit||0))/25):0;
+  var g=clamp01((sc.g.ey/25*35+sc.g.roic/48*35+(100-sc.g.rk)/100*20+evScore*10)/100);
+  var tv=clamp01(((4-Math.min(sc.t.pb,4))/4*20+(sc.t.ins?20:0)+sc.t.dy/5.5*20+sc.t.fcf/14*20+sc.t.shY/15*20)/100);
+  var m=clamp01((sc.m.moat/5*35+sc.m.qual/100*30+sc.m.mgmt/100*20+sc.m.revQ/8*15)/100);
   // RSI scoring: ideal 40-65 (momentum but not overbought)
   // Oversold (<40) gets partial credit — could be a value opportunity, but risky
   // Deeply oversold (<25) penalised more — often broken fundamentals, not just a dip
@@ -430,12 +432,12 @@ function comp(sc,w){
   else if(rsi>75)rsiScore=0.1;            // overbought — avoid chasing
   else if(rsi>=30&&rsi<40)rsiScore=0.65; // mildly oversold — slight discount
   else rsiScore=0.3;                      // deeply oversold (<30) — distress signal
-  var s2=(sc.s.mom/100*30+(sc.s.mr==="Long"?30:10)/30*20+sc.s.sa/100*20+rsiScore*30)/100;
-  var p=sc.p?sc.p.fscore/9:0.5;
+  var s2=clamp01((sc.s.mom/100*30+(sc.s.mr==="Long"?30:10)/30*20+sc.s.sa/100*20+rsiScore*30)/100);
+  var p=clamp01(sc.p?sc.p.fscore/9:0.5);
   var az=sc.a?Math.min(1,Math.max(0,(sc.a.z-1.0)/4.0)):0.5;
   if(sc.a&&sc.a.distress)az=Math.min(az,0.2);
   var si=sc.s.shortInt;
-  var shortScore=(si>=5&&si<=15)?0.7:(si<5)?0.5:(si>20)?0.2:0.4;
+  var shortScore=clamp01((si>=5&&si<=15)?0.7:(si<5)?0.5:(si>20)?0.2:0.4);
   // ── Druckenmiller: secular growth + macro momentum + quality + entry timing + beta ──
   var dk_grow=Math.min(1,sc.m.revQ/8*0.55+Math.min(1,sc.g.roic/45)*0.45);
   var dk_mom=sc.s.mom/100;
@@ -450,12 +452,12 @@ function comp(sc,w){
     if(b<0.5)return 0.4;// very low beta — defensive, not Druckenmiller-style
     return 0.4+b*0.6;  // 0.5-0.99: partial credit, scales toward 1.0
   })(sc.s.beta||1.0);
-  var druckScore=dk_grow*0.30+dk_mom*0.25+dk_qual*0.25+dk_entry*0.15+dk_beta*0.05;
+  var druckScore=clamp01(dk_grow*0.30+dk_mom*0.25+dk_qual*0.25+dk_entry*0.15+dk_beta*0.05);
   var wt=w.greenblatt||0,wv=w.tweedy||0,wm=w.munger||0,ws=w.simons||0;
   var wp=w.piotroski||0,wa=w.altman||0,wr=w.rsi||0,we=w.evEbit||0;
   var wsh=w.shYield||0,wrev=w.revGrowth||0,wsi=w.shortInt||0,wdk=w.druckenmiller||0;
   var tot=wt+wv+wm+ws+wp+wa+wr+we+wsh+wrev+wsi+wdk||1;
-  return+((g*(wt/tot)+tv*(wv/tot)+m*(wm/tot)+s2*(ws/tot)+p*(wp/tot)+az*(wa/tot)+rsiScore*(wr/tot)+Math.max(0,(25-sc.g.evEbit)/25)*(we/tot)+(sc.t.shY/15)*(wsh/tot)+(sc.m.revQ/8)*(wrev/tot)+shortScore*(wsi/tot)+druckScore*(wdk/tot))*100).toFixed(1);
+  return+((g*(wt/tot)+tv*(wv/tot)+m*(wm/tot)+s2*(ws/tot)+p*(wp/tot)+az*(wa/tot)+clamp01(rsiScore)*(wr/tot)+evScore*(we/tot)+clamp01(sc.t.shY/15)*(wsh/tot)+clamp01(sc.m.revQ/8)*(wrev/tot)+shortScore*(wsi/tot)+druckScore*(wdk/tot))*100).toFixed(1);
 }
 function nW(){
   var w=S.weights;
