@@ -253,13 +253,13 @@ router.post('/import-exchange', async (req, res) => {
 
     for (const s of batch) {
       const start = params.length + 1;
-      params.push(s.t, s.n, s.s, s.r, s.co, s.p, s.mc, true);
-      rows.push(`($${start},$${start+1},$${start+2},$${start+3},$${start+4},$${start+5},$${start+6},$${start+7},NOW())`);
+      params.push(s.t, s.n, s.s, s.r, s.co, s.p, s.mc, true, exchange.toUpperCase());
+      rows.push(`($${start},$${start+1},$${start+2},$${start+3},$${start+4},$${start+5},$${start+6},$${start+7},$${start+8},NOW())`);
     }
 
     const sql = `
       INSERT INTO prism_stock_universe
-        (ticker,name,sector,region,country_flag,price,market_cap_bn,active,ts)
+        (ticker,name,sector,region,country_flag,price,market_cap_bn,active,exchange,ts)
       VALUES ${rows.join(',')}
     `;
 
@@ -270,6 +270,223 @@ router.post('/import-exchange', async (req, res) => {
 
   console.log(`[eodhd] import-exchange ${exchange}: ${added} inserted, ${errors} errors, ${rawData.length} raw`);
   res.json({ added, total: rawData.length, exchange });
+});
+
+// ── EODHD Fundamentals → SECTOR MAP ──────────────────────────────────────────
+const SECTOR_MAP = {
+  'Technology':'Technology','Consumer Cyclical':'Consumer','Consumer Defensive':'Consumer',
+  'Consumer Discretionary':'Consumer','Consumer Staples':'Consumer',
+  'Healthcare':'Healthcare','Health Care':'Healthcare',
+  'Financial Services':'Finance','Financials':'Finance','Finance':'Finance',
+  'Energy':'Energy','Basic Materials':'Materials','Materials':'Materials',
+  'Industrials':'Industrial','Industrial':'Industrial',
+  'Communication Services':'Telecom','Telecom':'Telecom',
+  'Utilities':'Utilities','Real Estate':'Real Estate',
+};
+function mapSector(raw) { return SECTOR_MAP[raw] || (raw ? raw.trim() : 'Other'); }
+
+// Map EODHD fundamentals response → prism_fundamentals format
+function mapEodhdFundamentals(data) {
+  if (!data) return null;
+  const H = data.Highlights || {};
+  const V = data.Valuation  || {};
+  const G = data.General    || {};
+  function safeN(v) { if (v == null || v === '' || isNaN(+v)) return null; const n = +v; return n === 0 ? 0 : +n.toFixed(2); }
+  // EODHD returns ratios as decimals (0.15 = 15%) — multiply by 100
+  const dy  = safeN(H.DividendYield != null ? H.DividendYield * 100 : null);
+  const roe = safeN(H.ReturnOnEquityTTM != null ? H.ReturnOnEquityTTM * 100 : null);
+  const roa = safeN(H.ReturnOnAssetsTTM != null ? H.ReturnOnAssetsTTM * 100 : null);
+  const om  = safeN(H.OperatingMarginTTM != null ? H.OperatingMarginTTM * 100 : null);
+  const nm  = safeN(H.ProfitMargin != null ? H.ProfitMargin * 100 : null);
+  const eg  = safeN(H.QuarterlyEarningsGrowthYOY != null ? H.QuarterlyEarningsGrowthYOY * 100 : null);
+  const sg  = safeN(H.QuarterlyRevenueGrowthYOY != null ? H.QuarterlyRevenueGrowthYOY * 100 : null);
+  const ev  = safeN(V.EnterpriseValue != null ? V.EnterpriseValue / 1e9 : null);
+  const mc  = safeN(H.MarketCapitalization != null ? H.MarketCapitalization / 1e9 : null);
+  // Gross margin: derive from GrossProfitTTM / RevenueTTM if possible
+  let gm = null;
+  if (H.GrossProfitTTM && H.RevenueTTM && +H.RevenueTTM > 0) gm = safeN((+H.GrossProfitTTM / +H.RevenueTTM) * 100);
+  const fd = {
+    pe: safeN(H.PERatio || V.TrailingPE),
+    pb: safeN(H.PriceBookMRQ || V.PriceBookMRQ),
+    dy, roe, roa, om, nm, eg, sg, gm,
+    enterpriseValue: ev,
+    marketCap: mc,
+    _src: 'eodhd',
+    _sector: G.Sector ? mapSector(G.Sector) : null,
+    _mc: mc,
+  };
+  // Require at least 3 non-null values
+  const vals = [fd.pe, fd.pb, fd.dy, fd.roe, fd.roa, fd.om, fd.nm, fd.eg, fd.sg];
+  if (vals.filter(v => v != null).length < 3) return null;
+  return fd;
+}
+
+// Shared upsert for EODHD-sourced fundamentals (mirrors routes/fundamentals.js logic)
+const FUND_COLS = ['pe','pb','dy','roe','roa','de','cr','gm','om','nm','eg','sg','eqg','io','si','fcf','ev_ebit','enterprise_value','ebit_per_share'];
+async function storeEodhdFundamentals(map) {
+  if (!db.isPg || !Object.keys(map).length) return 0;
+  const UPSERT_SET = FUND_COLS.map(c => `${c}=COALESCE(EXCLUDED.${c},prism_fundamentals.${c})`).join(',');
+  const BATCH = 50;
+  let stored = 0;
+  const tickers = Object.keys(map).filter(tk => map[tk]);
+  for (let i = 0; i < tickers.length; i += BATCH) {
+    const batch = tickers.slice(i, i + BATCH);
+    const params = []; const rows = [];
+    for (const tk of batch) {
+      const fd = map[tk];
+      const vals = [tk,
+        fd.pe??null, fd.pb??null, fd.dy??null, fd.roe??null, fd.roa??null,
+        null, null, // de, cr — not in Highlights
+        fd.gm??null, fd.om??null, fd.nm??null,
+        fd.eg??null, fd.sg??null,
+        null, null, null, null, // eqg, io, si, fcf
+        null, // ev_ebit
+        fd.enterpriseValue??null,
+        null, // ebit_per_share
+        'eodhd'
+      ];
+      const start = params.length + 1;
+      params.push(...vals);
+      rows.push(`(${vals.map((_,j) => '$'+(start+j)).join(',')},NOW())`);
+    }
+    const sql = `INSERT INTO prism_fundamentals (ticker,${FUND_COLS.join(',')},provider,updated_at) VALUES ${rows.join(',')}
+      ON CONFLICT (ticker) DO UPDATE SET ${UPSERT_SET},provider=COALESCE(EXCLUDED.provider,prism_fundamentals.provider),updated_at=NOW()`;
+    const r = await db.exec(sql, params);
+    if (r.ok) stored += batch.length;
+    else console.error('[eodhd] fundamentals upsert error:', r.error?.substring(0, 200));
+  }
+  return stored;
+}
+
+// POST /api/eodhd/fetch-fundamentals
+// Body: { key, exchange, offset, limit }
+// Fetches fundamentals from EODHD for stocks from a given exchange, stores to DB
+// Returns { fetched, stored, total, offset, hasMore }
+router.post('/fetch-fundamentals', async (req, res) => {
+  if (!db.isPg) return res.status(400).json({ error: 'PostgreSQL required' });
+  const { key, exchange, offset = 0, limit = 100 } = req.body;
+  if (!key || !exchange) return res.status(400).json({ error: 'key and exchange required' });
+
+  const safeExch = db.esc(exchange.toUpperCase());
+  const safeLimit = Math.min(200, Math.max(1, parseInt(limit) || 100));
+  const safeOffset = Math.max(0, parseInt(offset) || 0);
+
+  // Get tickers for this exchange from DB
+  const qRes = await db.query(
+    `SELECT DISTINCT ON (ticker) ticker FROM prism_stock_universe WHERE active=true AND exchange='${safeExch}' ORDER BY ticker, ts DESC LIMIT ${safeLimit} OFFSET ${safeOffset}`
+  );
+  if (!qRes.ok) return res.status(503).json({ error: qRes.error });
+
+  const tickers = qRes.rows.map(r => r.ticker);
+  if (!tickers.length) return res.json({ fetched: 0, stored: 0, total: 0, offset: safeOffset, hasMore: false });
+
+  // Get total count for progress
+  const cntRes = await db.query(
+    `SELECT COUNT(DISTINCT ticker) as cnt FROM prism_stock_universe WHERE active=true AND exchange='${safeExch}'`
+  );
+  const total = cntRes.ok ? parseInt(cntRes.rows[0].cnt) : 0;
+
+  // Fetch fundamentals from EODHD in parallel batches of 10
+  const PARA = 10;
+  const fundMap = {};
+  const sectorUpdates = [];
+
+  async function fetchOne(ticker) {
+    const symbol = `${ticker}.${exchange.toUpperCase()}`;
+    try {
+      const data = await eodhdFetch(`/fundamentals/${encodeURIComponent(symbol)}?filter=Highlights,Valuation,General`, key);
+      const fd = mapEodhdFundamentals(data);
+      if (fd) {
+        fundMap[ticker] = fd;
+        if (fd._sector && fd._sector !== 'Other') {
+          sectorUpdates.push({ ticker, sector: fd._sector, mc: fd._mc });
+        }
+      }
+    } catch (e) {
+      // Non-fatal: stock may not be in EODHD or key exhausted
+    }
+  }
+
+  for (let i = 0; i < tickers.length; i += PARA) {
+    await Promise.allSettled(tickers.slice(i, i + PARA).map(fetchOne));
+    if (i + PARA < tickers.length) await new Promise(r => setTimeout(r, 200));
+  }
+
+  // Store fundamentals
+  const stored = await storeEodhdFundamentals(fundMap);
+
+  // Update sector + market cap in universe for stocks where we got real data
+  if (sectorUpdates.length && db.isPg) {
+    for (const { ticker, sector, mc } of sectorUpdates) {
+      const mcVal = mc != null ? mc : 0;
+      await db.exec(
+        `INSERT INTO prism_stock_universe (ts,ticker,name,sector,region,country_flag,price,market_cap_bn,active,exchange)
+         SELECT NOW(),'${db.esc(ticker)}',name,
+           '${db.esc(sector)}',region,country_flag,price,
+           ${mcVal > 0 ? mcVal : 'market_cap_bn'},
+           active,'${safeExch}'
+         FROM (SELECT DISTINCT ON (ticker) * FROM prism_stock_universe WHERE ticker='${db.esc(ticker)}' ORDER BY ticker,ts DESC) sub`
+      );
+    }
+  }
+
+  const hasMore = (safeOffset + tickers.length) < total;
+  console.log(`[eodhd] fetch-fundamentals ${exchange}: offset=${safeOffset} fetched=${tickers.length} stored=${stored} total=${total}`);
+  res.json({ fetched: tickers.length, stored, total, offset: safeOffset + tickers.length, hasMore, exchange });
+});
+
+// POST /api/eodhd/update-prices
+// Body: { key, exchange }
+// Fetches bulk EOD data for an exchange and updates prices + market cap in DB
+router.post('/update-prices', async (req, res) => {
+  if (!db.isPg) return res.status(400).json({ error: 'PostgreSQL required' });
+  const { key, exchange } = req.body;
+  if (!key || !exchange) return res.status(400).json({ error: 'key and exchange required' });
+
+  let rawData;
+  try {
+    rawData = await eodhdFetch(`/eod-bulk-last-day/${encodeURIComponent(exchange)}?filter=extended`, key);
+  } catch (e) {
+    return res.status(502).json({ error: e.message });
+  }
+
+  if (!Array.isArray(rawData)) return res.status(502).json({ error: 'Unexpected EODHD response' });
+
+  // Build price/mc map
+  const priceMap = {};
+  for (const row of rawData) {
+    if (row.code && row.close != null) {
+      priceMap[row.code.toUpperCase()] = {
+        price: +row.close || 0,
+        mc: row.market_capitalization != null ? +(+row.market_capitalization / 1e9).toFixed(3) : null
+      };
+    }
+  }
+
+  // Batch-update stocks in DB
+  const tickers = Object.keys(priceMap);
+  let updated = 0;
+  const safeExch = db.esc(exchange.toUpperCase());
+  const BATCH = 100;
+
+  for (let i = 0; i < tickers.length; i += BATCH) {
+    const batch = tickers.slice(i, i + BATCH);
+    for (const ticker of batch) {
+      const { price, mc } = priceMap[ticker];
+      const mcClause = mc != null ? mc : 'sub.market_cap_bn';
+      const r = await db.exec(
+        `INSERT INTO prism_stock_universe (ts,ticker,name,sector,region,country_flag,price,market_cap_bn,active,exchange)
+         SELECT NOW(),'${db.esc(ticker)}',name,sector,region,country_flag,
+           ${price},${mcClause},active,'${safeExch}'
+         FROM (SELECT DISTINCT ON (ticker) * FROM prism_stock_universe WHERE ticker='${db.esc(ticker)}' ORDER BY ticker,ts DESC) sub
+         WHERE sub.ticker IS NOT NULL`
+      );
+      if (r.ok) updated++;
+    }
+  }
+
+  console.log(`[eodhd] update-prices ${exchange}: ${updated} updated from ${rawData.length} rows`);
+  res.json({ updated, total: rawData.length, exchange });
 });
 
 module.exports = router;
