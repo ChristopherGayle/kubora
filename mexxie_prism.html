@@ -1325,6 +1325,7 @@ var S={
   eodhKey:(function(){try{return localStorage.getItem("mexxie_eodh_key")||""}catch(e){return""}})(),
   finvizData:(function(){try{var d=localStorage.getItem("mexxie_finviz_data");return d?normalizeFundamentalMap(JSON.parse(d)):{}}catch(e){return{}}}()),
   finvizTs:(function(){try{return+localStorage.getItem("mexxie_finviz_ts")||null}catch(e){return null}}()),
+  searchQuery:"",
   loading:false,loadingMsg:"",lastSource:"Simulated",lastCalls:0,lastErrors:[],lastProviderSummary:"",lastProviderCounts:{},
   expandedStock:null,
   capSize:(function(){try{return localStorage.getItem("mexxie_cap_size")||"all"}catch(e){return"all"}})(),
@@ -1463,6 +1464,7 @@ function getRanked(){
   }).filter(Boolean);
   if(S.strictCoverage)arr=arr.filter(function(st){var k=coverageMeta(st).key;return k==="high"||k==="medium"});
   if(S.coverageFilter&&S.coverageFilter!=="all")arr=arr.filter(function(st){return coverageMeta(st).key===S.coverageFilter});
+  if(S.searchQuery){var q=S.searchQuery.toLowerCase();arr=arr.filter(function(st){return st.t.toLowerCase().includes(q)||st.n.toLowerCase().includes(q)});}
   arr.sort(function(a,b){var ca=+(a.realFundCount||0),cb=+(b.realFundCount||0);if(cb!==ca)return cb-ca;return b.comp-a.comp});
   // Sector diversification: penalize 4th+ stock from same sector
   var top=arr.slice(0,S.numPicks+5);
@@ -1641,6 +1643,11 @@ function renderScreener(){
   var ps=h("select",{style:{fontFamily:"'JetBrains Mono',monospace",fontSize:"13px"},onChange:function(e){S.numPicks=+e.target.value;render()}});
   [5,8,10,15,20,30].forEach(function(n){var o=h("option",{value:n},n+"");if(n===S.numPicks)o.selected=true;ps.appendChild(o)});
   pb.appendChild(ps);ct.appendChild(pb);
+  var srchBox=h("div",{style:{background:t.card,border:"1px solid "+(S.searchQuery?t.accent:t.border),borderRadius:"10px",padding:"4px 10px",display:"flex",alignItems:"center",gap:"6px",transition:"border .2s",minWidth:"140px",maxWidth:"220px"}});
+  srchBox.appendChild(h("span",{style:{fontSize:"12px",color:t.tm,flexShrink:"0"}},"🔍"));
+  var srchIn=h("input",{type:"text",value:S.searchQuery||"",placeholder:"Search stocks…",style:{border:"none",background:"transparent",color:t.text,fontSize:"12px",fontFamily:"'JetBrains Mono',monospace",outline:"none",width:"100%",padding:"2px 0"},onInput:function(e){S.searchQuery=e.target.value.trim();render();}});
+  if(S.searchQuery){var clrBtn=h("button",{style:{border:"none",background:"transparent",color:t.tm,cursor:"pointer",fontSize:"13px",padding:"0",lineHeight:"1",flexShrink:"0"},onClick:function(){S.searchQuery="";render()}},"×");srchBox.appendChild(srchIn);srchBox.appendChild(clrBtn);}else{srchBox.appendChild(srchIn);}
+  ct.appendChild(srchBox);
   var sb=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"10px",padding:"6px 12px",display:"flex",alignItems:"center",gap:"6px"}});
   sb.appendChild(h("span",{style:{fontSize:"10px",color:t.tm,textTransform:"uppercase",fontWeight:"600"}},"Sector"));
   var ss=h("select",{style:{fontSize:"13px"},onChange:function(e){S.sector=e.target.value;render()}});
@@ -1827,6 +1834,31 @@ function renderScreener(){
         metGrid.appendChild(cell);
       });
       exec.appendChild(metGrid);
+      // Score history sparkline
+      if(API_AVAILABLE){
+        var sparkWrap=h("div",{style:{marginTop:"12px",padding:"10px",background:t.surface,borderRadius:"10px"}});
+        sparkWrap.appendChild(h("div",{style:{fontSize:"10px",color:t.tm,textTransform:"uppercase",letterSpacing:"1px",marginBottom:"6px"}},"Score History"));
+        var sparkEl=h("div",{style:{fontSize:"10px",color:t.tm}},"\u23F3 Loading…");
+        sparkWrap.appendChild(sparkEl);
+        exec.appendChild(sparkWrap);
+        fetch(API_BASE+"/scores/history/"+encodeURIComponent(st.t)+"/sampled",{signal:AbortSignal.timeout(8000)})
+          .then(function(r){return r.json();})
+          .then(function(rows){
+            if(!rows||rows.length<2){sparkEl.textContent="No history yet — scores are recorded each time you run Simulate or Live Refresh";return;}
+            var scores=rows.map(function(r){return+(r.composite_score||0)});
+            var mn=Math.min.apply(null,scores),mx=Math.max.apply(null,scores),rng=mx-mn||1;
+            var W=260,H=36,last=scores[scores.length-1];
+            var col=last>=70?"#10b981":last>=50?"#0ea5e9":"#f59e0b";
+            var pts=scores.map(function(s,i){return((i/(scores.length-1))*W).toFixed(1)+","+(H-((s-mn)/rng*H)).toFixed(1)}).join(" ");
+            var lx=W,ly=+(H-((last-mn)/rng*H)).toFixed(1);
+            sparkEl.innerHTML='<svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'" fill="none" xmlns="http://www.w3.org/2000/svg">'
+              +'<polyline points="'+pts+'" stroke="'+col+'" stroke-width="1.5" fill="none" stroke-linejoin="round"/>'
+              +'<circle cx="'+lx+'" cy="'+ly+'" r="3" fill="'+col+'"/>'
+              +'</svg>';
+            sparkEl.appendChild(h("div",{style:{fontSize:"9px",color:t.tm,marginTop:"3px"}},rows.length+" snapshots · current score: "+last.toFixed(0)+"/100"));
+          })
+          .catch(function(){sparkEl.textContent="History unavailable";});
+      }
     }
     card.appendChild(exec);
     grid.appendChild(card);
@@ -2445,14 +2477,186 @@ function renderSettings(){
     testRow2.appendChild(fmpTestStatus);
     dc.appendChild(testRow2);
   }
-  // ── Stock Universe Info ───────────────────────────────────────────
+  // ── Stock Universe ────────────────────────────────────────────────
   var importSection=h("div",{style:{marginBottom:"18px",padding:"12px 14px",background:t.surface,border:"1px solid "+t.border,borderRadius:"10px"}});
-  importSection.appendChild(h("div",{style:{fontSize:"12px",fontWeight:"700",color:t.text,marginBottom:"4px"}},"📥 Stock Universe"));
-  importSection.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,lineHeight:"1.5"}},
+  importSection.appendChild(h("div",{style:{fontSize:"12px",fontWeight:"700",color:t.text,marginBottom:"6px"}},"📥 Stock Universe"));
+
+  // Status row
+  var univStatus=h("div",{style:{fontSize:"11px",color:API_AVAILABLE?t.buy:t.tm,marginBottom:"10px",lineHeight:"1.5"}},
     API_AVAILABLE
-      ? "✅ Connected to cloud DB · "+ALL_STOCKS.length.toLocaleString()+" stocks loaded. To expand the universe, run the sync script from your Terminal:\n  node mexxie-api/scripts/sync-to-cloud.js"
-      : "⚠️ Not connected. Enter your Railway URL above and click Save & Test."
-  ));
+      ? "✅ "+ALL_STOCKS.length.toLocaleString()+" stocks loaded from cloud DB"
+      : "⚠️ API not connected — enter your Railway URL above to enable imports"
+  );
+  importSection.appendChild(univStatus);
+
+  if(API_AVAILABLE){
+    // Step 1: sync from QuestDB (terminal instruction)
+    var questSection=h("div",{style:{marginBottom:"12px",padding:"10px 12px",background:t.card,border:"1px solid "+t.border,borderRadius:"8px"}});
+    questSection.appendChild(h("div",{style:{fontSize:"11px",fontWeight:"700",color:t.text,marginBottom:"4px"}},"STEP 1 — Sync 2,209 stocks from your local QuestDB"));
+    questSection.appendChild(h("div",{style:{fontSize:"10px",color:t.tm,lineHeight:"1.6",marginBottom:"6px"}},"Run once from Terminal. Reads your local QuestDB (port 9000) and pushes all stocks to Railway:"));
+    questSection.appendChild(h("div",{style:{fontSize:"10px",fontFamily:"'JetBrains Mono',monospace",padding:"6px 10px",background:t.surface,borderRadius:"6px",color:t.accent,userSelect:"all"}},"node mexxie-api/sync-from-questdb.js"));
+    importSection.appendChild(questSection);
+
+    // Step 2: import exchange from EODHD
+    var eodSection=h("div",{style:{marginBottom:"0",padding:"10px 12px",background:t.card,border:"1px solid "+t.border,borderRadius:"8px"}});
+    eodSection.appendChild(h("div",{style:{fontSize:"11px",fontWeight:"700",color:t.text,marginBottom:"4px"}},"STEP 2 — Import additional exchanges from EODHD"));
+    eodSection.appendChild(h("div",{style:{fontSize:"10px",color:t.tm,lineHeight:"1.5",marginBottom:"8px"}},"Fetches all common stocks from a selected exchange and adds them to the cloud DB. Uses your EODHD key above."));
+
+    var exchRow=h("div",{style:{display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap"}});
+    var exchSel=h("select",{style:{flex:"1",minWidth:"180px",padding:"8px 10px",borderRadius:"8px",border:"1px solid "+t.border,background:t.surface,color:t.text,fontSize:"12px",fontFamily:"inherit"}});
+    exchSel.appendChild(h("option",{value:""},"— pick an exchange —"));
+    var EXCHANGES=[
+      {code:"US",    name:"US (NYSE + NASDAQ)",          flag:"🇺🇸"},
+      {code:"TO",    name:"Toronto (TSX)",                flag:"🇨🇦"},
+      {code:"LSE",   name:"London (LSE)",                 flag:"🇬🇧"},
+      {code:"XETRA", name:"Germany (XETRA)",              flag:"🇩🇪"},
+      {code:"PA",    name:"Paris (Euronext)",              flag:"🇫🇷"},
+      {code:"AS",    name:"Amsterdam (Euronext)",          flag:"🇳🇱"},
+      {code:"SW",    name:"Switzerland (SIX)",             flag:"🇨🇭"},
+      {code:"ST",    name:"Stockholm (Nasdaq Nordic)",     flag:"🇸🇪"},
+      {code:"OL",    name:"Oslo Børs",                    flag:"🇳🇴"},
+      {code:"CO",    name:"Copenhagen (Nasdaq)",           flag:"🇩🇰"},
+      {code:"MI",    name:"Milan (Borsa Italiana)",        flag:"🇮🇹"},
+      {code:"MC",    name:"Madrid (Bolsa)",                flag:"🇪🇸"},
+      {code:"VIE",   name:"Vienna (Wiener Börse)",         flag:"🇦🇹"},
+      {code:"T",     name:"Tokyo (TSE)",                   flag:"🇯🇵"},
+      {code:"HK",    name:"Hong Kong (HKEX)",              flag:"🇭🇰"},
+      {code:"KO",    name:"Korea (KOSPI)",                 flag:"🇰🇷"},
+      {code:"BSE",   name:"Bombay (BSE)",                  flag:"🇮🇳"},
+      {code:"NSE",   name:"India (NSE)",                   flag:"🇮🇳"},
+      {code:"SG",    name:"Singapore (SGX)",               flag:"🇸🇬"},
+      {code:"AU",    name:"Australia (ASX)",               flag:"🇦🇺"},
+      {code:"MY",    name:"Malaysia (Bursa)",              flag:"🇲🇾"},
+      {code:"JSE",   name:"South Africa (JSE)",            flag:"🇿🇦"},
+      {code:"NGX",   name:"Nigeria (NGX)",                 flag:"🇳🇬"},
+      {code:"EGX",   name:"Egypt (EGX)",                   flag:"🇪🇬"},
+      {code:"SA",    name:"Brazil (B3)",                   flag:"🇧🇷"},
+      {code:"MX",    name:"Mexico (BMV)",                  flag:"🇲🇽"},
+      {code:"SGO",   name:"Chile (Santiago)",              flag:"🇨🇱"},
+    ];
+    EXCHANGES.forEach(function(ex){exchSel.appendChild(h("option",{value:ex.code},ex.flag+" "+ex.name))});
+    exchRow.appendChild(exchSel);
+
+    var importStatusSpan=h("span",{style:{fontSize:"10px",color:t.tm}},S.eodhKey?"":"⚠️ Enter EODHD key above first");
+    var importBtn=h("button",{style:{
+      padding:"8px 14px",borderRadius:"8px",border:"1px solid "+t.accent+"66",
+      background:t.accent+"22",color:t.accent,fontSize:"12px",fontWeight:"700",fontFamily:"inherit",
+      cursor:"pointer",whiteSpace:"nowrap"
+    },onClick:async function(){
+      var exch=exchSel.value;
+      if(!exch){importStatusSpan.textContent="⚠️ Select an exchange first";importStatusSpan.style.color="#f59e0b";return;}
+      if(!S.eodhKey){importStatusSpan.textContent="⚠️ Enter your EODHD API key above first";importStatusSpan.style.color="#f59e0b";return;}
+      importBtn.disabled=true;
+      importStatusSpan.textContent="⏳ Fetching from EODHD…";importStatusSpan.style.color=t.tm;
+      try{
+        var r=await fetch(API_BASE+"/eodhd/import-exchange",{
+          method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({exchange:exch,key:S.eodhKey}),
+          signal:AbortSignal.timeout(120000)
+        });
+        var d=await r.json();
+        if(!r.ok){importStatusSpan.textContent="❌ "+(d.error||r.status);importStatusSpan.style.color=t.sell;}
+        else{
+          importStatusSpan.textContent="✅ "+d.added.toLocaleString()+" stocks added from "+exch+" ("+d.total.toLocaleString()+" total in exchange)";
+          importStatusSpan.style.color=t.buy;
+          // Reload universe
+          try{await loadStockUniverse();univStatus.textContent="✅ "+ALL_STOCKS.length.toLocaleString()+" stocks loaded from cloud DB";}catch(e2){}
+        }
+      }catch(e){
+        importStatusSpan.textContent="❌ "+(e.name==="TimeoutError"?"Request timed out — try a smaller exchange":"Error: "+e.message);
+        importStatusSpan.style.color=t.sell;
+      }
+      importBtn.disabled=false;
+    }},"⬇ Import Exchange");
+    exchRow.appendChild(importBtn);
+    eodSection.appendChild(exchRow);
+    eodSection.appendChild(h("div",{style:{marginTop:"6px"}},importStatusSpan));
+    importSection.appendChild(eodSection);
+
+    // Step 3: Fetch fundamentals for imported stocks
+    var fundSection=h("div",{style:{marginTop:"8px",padding:"10px 12px",background:t.card,border:"1px solid "+t.border,borderRadius:"8px"}});
+    fundSection.appendChild(h("div",{style:{fontSize:"11px",fontWeight:"700",color:t.text,marginBottom:"4px"}},"STEP 3 — Fetch fundamentals + real prices from EODHD"));
+    fundSection.appendChild(h("div",{style:{fontSize:"10px",color:t.tm,lineHeight:"1.5",marginBottom:"8px"}},"Fetches PE, ROE, margins, sector, and current prices for all stocks in the selected exchange. Uses your EODHD key above. Run after each import."));
+
+    var step3Row=h("div",{style:{display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap",marginBottom:"6px"}});
+    var fundExchSel=h("select",{style:{flex:"1",minWidth:"160px",padding:"7px 10px",borderRadius:"8px",border:"1px solid "+t.border,background:t.surface,color:t.text,fontSize:"12px",fontFamily:"inherit"}});
+    fundExchSel.appendChild(h("option",{value:""},"— pick exchange —"));
+    EXCHANGES.forEach(function(ex){fundExchSel.appendChild(h("option",{value:ex.code},ex.flag+" "+ex.name))});
+    step3Row.appendChild(fundExchSel);
+
+    var fundProgress=h("div",{style:{fontSize:"10px",color:t.tm,marginTop:"4px",lineHeight:"1.5"}},S.eodhKey?"Ready":"⚠️ Enter EODHD key above first");
+    var fetchFundBtn=h("button",{style:{
+      padding:"8px 14px",borderRadius:"8px",border:"1px solid #10b981"+"66",
+      background:"#10b981"+"22",color:"#10b981",fontSize:"12px",fontWeight:"700",fontFamily:"inherit",
+      cursor:"pointer",whiteSpace:"nowrap"
+    },onClick:async function(){
+      var exch=fundExchSel.value;
+      if(!exch){fundProgress.textContent="⚠️ Select an exchange first";fundProgress.style.color="#f59e0b";return;}
+      if(!S.eodhKey){fundProgress.textContent="⚠️ Enter your EODHD key above first";fundProgress.style.color="#f59e0b";return;}
+      fetchFundBtn.disabled=true;updatePricesBtn.disabled=true;
+      var offset=0,totalFetched=0,totalStored=0,grand=0;
+      var doNext=async function(){
+        fundProgress.textContent="⏳ Fetching… offset "+offset+(grand?" of "+grand:"");fundProgress.style.color=t.tm;
+        try{
+          var r=await fetch(API_BASE+"/eodhd/fetch-fundamentals",{
+            method:"POST",headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({key:S.eodhKey,exchange:exch,offset:offset,limit:100}),
+            signal:AbortSignal.timeout(60000)
+          });
+          var d=await r.json();
+          if(!r.ok){fundProgress.textContent="❌ "+(d.error||r.status);fundProgress.style.color="#ef4444";fetchFundBtn.disabled=false;updatePricesBtn.disabled=false;return;}
+          totalFetched+=d.fetched;totalStored+=d.stored;grand=d.total;offset=d.offset;
+          if(d.hasMore){
+            fundProgress.textContent="✓ Fetched "+totalFetched+"/"+grand+" · Stored "+totalStored+" · continuing…";
+            fundProgress.style.color=t.accent;
+            setTimeout(doNext,300);
+          }else{
+            fundProgress.textContent="✅ Done — "+totalStored+" fundamentals stored for "+exch+" ("+totalFetched+" stocks processed)";
+            fundProgress.style.color="#10b981";
+            fetchFundBtn.disabled=false;updatePricesBtn.disabled=false;
+            // Reload fundamentals from backend
+            try{await loadFundamentalsFromBackend();render();}catch(e2){}
+          }
+        }catch(e){
+          fundProgress.textContent="❌ "+(e.name==="TimeoutError"?"Request timed out":""+e.message);
+          fundProgress.style.color="#ef4444";fetchFundBtn.disabled=false;updatePricesBtn.disabled=false;
+        }
+      };
+      doNext();
+    }},"📊 Fetch Fundamentals");
+    step3Row.appendChild(fetchFundBtn);
+
+    var updatePricesBtn=h("button",{style:{
+      padding:"8px 14px",borderRadius:"8px",border:"1px solid "+t.accent+"66",
+      background:t.accent+"22",color:t.accent,fontSize:"12px",fontWeight:"700",fontFamily:"inherit",
+      cursor:"pointer",whiteSpace:"nowrap"
+    },onClick:async function(){
+      var exch=fundExchSel.value;
+      if(!exch){fundProgress.textContent="⚠️ Select an exchange first";fundProgress.style.color="#f59e0b";return;}
+      if(!S.eodhKey){fundProgress.textContent="⚠️ Enter your EODHD key above first";fundProgress.style.color="#f59e0b";return;}
+      fetchFundBtn.disabled=true;updatePricesBtn.disabled=true;
+      fundProgress.textContent="⏳ Fetching bulk prices from EODHD…";fundProgress.style.color=t.tm;
+      try{
+        var r=await fetch(API_BASE+"/eodhd/update-prices",{
+          method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({key:S.eodhKey,exchange:exch}),
+          signal:AbortSignal.timeout(120000)
+        });
+        var d=await r.json();
+        if(!r.ok){fundProgress.textContent="❌ "+(d.error||r.status);fundProgress.style.color="#ef4444";}
+        else{fundProgress.textContent="✅ "+d.updated+" prices updated for "+exch;fundProgress.style.color="#10b981";try{await loadStockUniverse();}catch(e2){}}
+      }catch(e){
+        fundProgress.textContent="❌ "+(e.name==="TimeoutError"?"Timed out — try again":""+e.message);
+        fundProgress.style.color="#ef4444";
+      }
+      fetchFundBtn.disabled=false;updatePricesBtn.disabled=false;
+    }},"💰 Update Prices");
+    step3Row.appendChild(updatePricesBtn);
+    fundSection.appendChild(step3Row);
+    fundSection.appendChild(fundProgress);
+    importSection.appendChild(fundSection);
+  }
+
   dc.appendChild(importSection);
 
   var covReport=h("div",{style:{marginBottom:"18px",padding:"12px 14px",background:t.surface,border:"1px solid "+t.border,borderRadius:"10px"}});

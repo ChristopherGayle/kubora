@@ -175,6 +175,40 @@ async function persistPick(action,pick,data){
     else if(action==='delete')await fetch(API_BASE+'/picks/'+pick.t,{method:'DELETE'});
   }catch(e){}
 }
+async function loadFundamentalsFromBackend(){
+  if(!API_AVAILABLE)return;
+  try{
+    var r=await fetch(API_BASE+'/fundamentals',{signal:AbortSignal.timeout(8000)});
+    if(!r.ok)return;
+    var d=await r.json();
+    if(d&&d.results&&Object.keys(d.results).length>0){
+      // Merge backend fundamentals into finvizData (backend wins for fields it has)
+      Object.keys(d.results).forEach(function(tk){
+        var src=d.results[tk];
+        var dst=S.finvizData[tk]||{};
+        Object.keys(src).forEach(function(k){if(src[k]!=null)dst[k]=src[k];});
+        S.finvizData[tk]=dst;
+      });
+      console.log('Loaded fundamentals for '+Object.keys(d.results).length+' stocks from backend');
+    }
+  }catch(e){console.log('loadFundamentalsFromBackend failed:',e.message);}
+}
+async function pushFundamentalsToBackend(){
+  if(!API_AVAILABLE)return;
+  try{
+    var fd=S.finvizData||{};
+    var tickers=Object.keys(fd);
+    if(!tickers.length)return;
+    var CHUNK=50;
+    for(var i=0;i<tickers.length;i+=CHUNK){
+      var batch={};
+      tickers.slice(i,i+CHUNK).forEach(function(tk){batch[tk]=fd[tk];});
+      await fetch(API_BASE+'/fundamentals/store',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({fundamentals:batch}),signal:AbortSignal.timeout(15000)});
+    }
+    console.log('Pushed '+tickers.length+' fundamentals to backend');
+  }catch(e){console.log('pushFundamentalsToBackend failed:',e.message);}
+}
 // ===================== STOCK DATA =====================
 var REGION_MAP={"Worldwide":null,"US":"\uD83C\uDDFA\uD83C\uDDF8","Europe":"\uD83C\uDDEA\uD83C\uDDFA","Asia":"\uD83C\uDF0F","S. America":"\uD83C\uDDE7\uD83C\uDDF7","Africa":"\uD83C\uDDFF\uD83C\uDDE6"};
 var REGIONS=Object.keys(REGION_MAP);
@@ -2097,6 +2131,7 @@ function renderSettings(){
         }
         autoBtn.disabled=false;autoBtn.style.opacity="1";autoBtn.textContent="🤖 Auto-Fetch Fundamentals";
         render();
+        pushFundamentalsToBackend();
       }
       function next(){
         if(idx>=tickers.length||hitRateLimit){finishFetch();return;}
@@ -2160,6 +2195,7 @@ function renderSettings(){
       }catch(err){console.warn("localStorage full:",err.message);}
       fvFileInput.value="";
       render();
+      pushFundamentalsToBackend();
       // Auto-simulate to apply
       refreshData();
     };
@@ -2255,7 +2291,7 @@ function renderFatalError(err){
     await checkAPI();
     console.log('API available:',API_AVAILABLE);
     if(API_AVAILABLE){
-      await Promise.all([loadStockUniverse(),loadPriorPicks()]);
+      await Promise.all([loadStockUniverse(),loadPriorPicks(),loadFundamentalsFromBackend()]);
     }
     render();
     // Async: load market valuation

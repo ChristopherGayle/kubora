@@ -217,6 +217,15 @@ async function migrate() {
     const result = await db.exec(ddl);
     if (!result.ok) console.error('[migrate] DDL error:', result.error);
   }
+  // Add columns that may not exist in older deployments (safe to run repeatedly)
+  const alters = [
+    `ALTER TABLE prism_stock_universe ADD COLUMN IF NOT EXISTS exchange VARCHAR(20)`,
+  ];
+  for (const alt of alters) {
+    const r = await db.exec(alt);
+    if (!r.ok && !r.error?.includes('already exists')) console.error('[migrate] ALTER error:', r.error);
+  }
+
   console.log('[migrate] Tables ready');
 
   // Seed stocks if empty

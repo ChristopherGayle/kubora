@@ -11,7 +11,7 @@ router.get('/', async (req, res) => {
     let where = ['active = true'];
     if (region && region !== 'Worldwide') where.push("region = '" + db.esc(region) + "'");
     if (sector && sector !== 'All') where.push("sector = '" + db.esc(sector) + "'");
-    sql = 'SELECT DISTINCT ON (ticker) ticker, name, sector, region, country_flag, price, market_cap_bn, active ' +
+    sql = 'SELECT DISTINCT ON (ticker) ticker, name, sector, region, country_flag, price, market_cap_bn, active, exchange ' +
       'FROM prism_stock_universe WHERE ' + where.join(' AND ') + ' ORDER BY ticker, ts DESC';
     if (limit) sql = 'SELECT * FROM (' + sql + ') sub LIMIT ' + Math.min(5000, Math.max(1, parseInt(limit) || 500));
   } else {
@@ -32,7 +32,8 @@ router.get('/', async (req, res) => {
     .filter(r => r.active !== false)
     .map(r => ({
       t: r.ticker, n: r.name, s: r.sector, p: r.price || 0,
-      mc: r.market_cap_bn || 0, r: r.region, co: r.country_flag || ''
+      mc: r.market_cap_bn || 0, r: r.region, co: r.country_flag || '',
+      ex: r.exchange || null
     }));
   res.json(stocks);
 });
@@ -61,11 +62,13 @@ router.post('/', async (req, res) => {
   let inserted = 0, errors = [];
   for (let i = 0; i < stocks.length; i += 50) {
     const chunk = stocks.slice(i, i + 50);
-    const values = chunk.map(s =>
-      "(NOW(),'" + db.esc(s.t) + "','" + db.esc(s.n) + "','" + db.esc(s.s) + "','" +
-      db.esc(s.r) + "','" + db.esc(s.co) + "'," + (s.p || 0) + ',' + (s.mc || 0) + ',true)'
-    ).join(',');
-    const sql = 'INSERT INTO prism_stock_universe (ts,ticker,name,sector,region,country_flag,price,market_cap_bn,active) VALUES ' + values + ';';
+    const values = chunk.map(s => {
+      const ex = s.ex || s.exchange || null;
+      return "(NOW(),'" + db.esc(s.t) + "','" + db.esc(s.n) + "','" + db.esc(s.s) + "','" +
+        db.esc(s.r) + "','" + db.esc(s.co) + "'," + (s.p || 0) + ',' + (s.mc || 0) + ',true,' +
+        (ex ? "'" + db.esc(ex) + "'" : 'NULL') + ')';
+    }).join(',');
+    const sql = 'INSERT INTO prism_stock_universe (ts,ticker,name,sector,region,country_flag,price,market_cap_bn,active,exchange) VALUES ' + values + ';';
     const result = await db.exec(sql);
     if (result.ok) inserted += chunk.length;
     else errors.push(result.error);
