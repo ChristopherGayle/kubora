@@ -2,6 +2,9 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 
+// Safe numeric coercion — prevents non-numbers reaching SQL
+function n(v) { const x = +v; return (isFinite(x) && !isNaN(x)) ? x : 0; }
+
 // POST /api/scores — save batch of scored snapshots
 router.post('/', async (req, res) => {
   const { dataSource, scores } = req.body;
@@ -16,12 +19,12 @@ router.post('/', async (req, res) => {
     const values = chunk.map(s => {
       const sc = s.sc || {}, g = sc.g || {}, t = sc.t || {}, m = sc.m || {}, si = sc.s || {}, p = sc.p || {}, a = sc.a || {};
       return "('" + db.esc(s.ticker) + "',NOW()," +
-        (g.ey||0)+','+(g.roic||0)+','+(g.evEbit||0)+','+
-        (t.pb||0)+','+(t.dy||0)+','+(t.fcf||0)+','+(t.shY||0)+','+
-        (m.moat||0)+','+(m.qual||0)+','+
-        (si.mom||0)+','+(si.rsi||0)+','+(si.shortInt||0)+','+
-        (p.fscore||0)+','+(a.z||0)+','+
-        (s.comp||0)+','+(s.consensus||0)+",'"+src+"')";
+        n(g.ey)+','+n(g.roic)+','+n(g.evEbit)+','+
+        n(t.pb)+','+n(t.dy)+','+n(t.fcf)+','+n(t.shY)+','+
+        n(m.moat)+','+n(m.qual)+','+
+        n(si.mom)+','+n(si.rsi)+','+n(si.shortInt)+','+
+        n(p.fscore)+','+n(a.z)+','+
+        n(s.comp)+','+n(s.consensus)+",'"+src+"')";
     }).join(',');
 
     const sql = 'INSERT INTO prism_scores ' +
@@ -37,14 +40,14 @@ router.post('/', async (req, res) => {
 
 // GET /api/scores/latest
 router.get('/latest', async (req, res) => {
-  const { limit } = req.query;
+  const safeLimit = req.query.limit ? Math.min(5000, Math.max(1, parseInt(req.query.limit) || 500)) : null;
   let sql;
   if (db.isPg) {
     sql = 'SELECT DISTINCT ON (ticker) * FROM prism_scores ORDER BY ticker, ts DESC';
-    if (limit) sql = 'SELECT * FROM (' + sql + ') sub LIMIT ' + parseInt(limit);
+    if (safeLimit) sql = 'SELECT * FROM (' + sql + ') sub LIMIT ' + safeLimit;
   } else {
     sql = 'SELECT * FROM prism_scores LATEST ON ts PARTITION BY ticker';
-    if (limit) sql += ' LIMIT ' + parseInt(limit);
+    if (safeLimit) sql += ' LIMIT ' + safeLimit;
     sql += ';';
   }
   const result = await db.query(sql);
@@ -55,14 +58,15 @@ router.get('/latest', async (req, res) => {
 // GET /api/scores/history/:ticker
 router.get('/history/:ticker', async (req, res) => {
   const ticker = db.esc(req.params.ticker);
-  const { from, to, limit } = req.query;
+  const { from, to } = req.query;
+  const safeLimit = req.query.limit ? Math.min(10000, Math.max(1, parseInt(req.query.limit) || 500)) : null;
 
   let sql = "SELECT ts, composite_score, ey, roic, pb, momentum, rsi, fscore, altman_z, " +
     "consensus_count, data_source FROM prism_scores WHERE ticker = '" + ticker + "'";
   if (from) sql += " AND ts >= '" + db.esc(from) + "'";
   if (to) sql += " AND ts <= '" + db.esc(to) + "'";
   sql += ' ORDER BY ts';
-  if (limit) sql += ' LIMIT ' + parseInt(limit);
+  if (safeLimit) sql += ' LIMIT ' + safeLimit;
   sql += ';';
 
   const result = await db.query(sql);

@@ -389,7 +389,7 @@ function sR(seed){var x=Math.sin(seed)*10000;return x-Math.floor(x)}
 // Score cache — clears automatically when dataSeed changes (Simulate/Refresh)
 var _SC={};var _SCSeed=null;
 // Deep clone a score object so live-data mutations don't corrupt the cache
-function _cloneSc(r){return{g:Object.assign({},r.g),t:Object.assign({},r.t),m:Object.assign({},r.m),s:Object.assign({},r.s),p:{fscore:r.p.fscore,pf:Object.assign({},r.p.pf)},a:Object.assign({},r.a)}}
+function _cloneSc(r){return{g:Object.assign({},r.g),t:Object.assign({},r.t),m:Object.assign({},r.m),s:Object.assign({},r.s),p:{fscore:r.p.fscore,pf:Object.assign({},r.p.pf)},a:Object.assign({},r.a),eq:Object.assign({},r.eq||{})}}
 function genSc(idx){
   var base=S.dataSeed||1;
   // Clear cache when seed changes (new Simulate or Live Refresh)
@@ -405,13 +405,20 @@ function genSc(idx){
   var revQ=Math.floor(s(27)*9);
   var shortInt=+(s(28)*30).toFixed(1);
   var beta=+(0.4+s(29)*1.8).toFixed(2); // simulated beta 0.4–2.2
+  // ── Novy-Marx: Gross Profitability (Gross Profit / Assets) ──
+  var grossProfit=+(0.10+s(30)*0.65).toFixed(2);
+  // ── George-Hwang: 52-Week High Proximity ──
+  var weekHigh52=+(0.25+s(31)*0.75).toFixed(2);
+  // ── Earnings Quality: Accruals Ratio ──
+  var accruals=+(-0.05+s(32)*0.15).toFixed(3);
   var result={
-    g:{ey:+(5+s(1)*20).toFixed(1),roic:+(8+s(2)*40).toFixed(1),rk:Math.floor(s(3)*100)+1,evEbit:evEbit,hasRealEvEbit:false},
+    g:{ey:+(5+s(1)*20).toFixed(1),roic:+(8+s(2)*40).toFixed(1),rk:Math.floor(s(3)*100)+1,evEbit:evEbit,hasRealEvEbit:false,grossProfit:grossProfit},
     t:{pb:+(0.5+s(4)*3.5).toFixed(2),ins:s(5)>0.5,dy:+(0.5+s(6)*5).toFixed(1),fcf:+(2+s(7)*12).toFixed(1),shY:shY},
     m:{moat:Math.floor(s(8)*5)+1,qual:+(60+s(9)*40).toFixed(0),mgmt:+(50+s(10)*50).toFixed(0),revQ:revQ},
-    s:{mom:+(30+s(11)*70).toFixed(0),mr:s(12)>0.4?"Long":"Neutral",sa:+(40+s(13)*60).toFixed(0),rsi:rsi,shortInt:shortInt,beta:beta},
+    s:{mom:+(30+s(11)*70).toFixed(0),mr:s(12)>0.4?"Long":"Neutral",sa:+(40+s(13)*60).toFixed(0),rsi:rsi,shortInt:shortInt,beta:beta,weekHigh52:weekHigh52},
     p:{fscore:fscore,pf:pf},
-    a:{z:altZ,safe:altZ>2.99,grey:altZ>=1.81&&altZ<=2.99,distress:altZ<1.81}
+    a:{z:altZ,safe:altZ>2.99,grey:altZ>=1.81&&altZ<=2.99,distress:altZ<1.81},
+    eq:{accruals:accruals}
   };
   _SC[idx]=result;
   return _cloneSc(result);
@@ -419,23 +426,31 @@ function genSc(idx){
 function comp(sc,w){
   function clamp01(v){return Math.max(0,Math.min(1,v||0))}
   var evScore=sc.g&&sc.g.hasRealEvEbit?clamp01((25-Math.max(0,+sc.g.evEbit||0))/25):0;
-  var g=clamp01((sc.g.ey/25*35+sc.g.roic/48*35+(100-sc.g.rk)/100*20+evScore*10)/100);
+  // ── Novy-Marx Gross Profitability ──
+  var gpScore=clamp01((sc.g.grossProfit||0)/0.50);
+  var g=clamp01((sc.g.ey/25*30+sc.g.roic/48*25+(100-sc.g.rk)/100*20+evScore*10+gpScore*15)/100);
   var tv=clamp01(((4-Math.min(sc.t.pb,4))/4*20+(sc.t.ins?20:0)+sc.t.dy/5.5*20+sc.t.fcf/14*20+sc.t.shY/15*20)/100);
-  var m=clamp01((sc.m.moat/5*35+sc.m.qual/100*30+sc.m.mgmt/100*20+sc.m.revQ/8*15)/100);
+  // ── Earnings Quality (Accruals) ──
+  var accrualScore=clamp01(1-((sc.eq&&sc.eq.accruals!=null?sc.eq.accruals:0)+0.05)/0.15);
+  var m=clamp01((sc.m.moat/5*25+sc.m.qual/100*25+sc.m.mgmt/100*15+sc.m.revQ/8*15+gpScore*10+accrualScore*10)/100);
   // RSI scoring: ideal 40-65 (momentum but not overbought)
-  // Oversold (<40) gets partial credit — could be a value opportunity, but risky
-  // Deeply oversold (<25) penalised more — often broken fundamentals, not just a dip
   var rsiScore=0;
   var rsi=+sc.s.rsi;
   if(rsi>=40&&rsi<=65)rsiScore=1.0;
-  else if(rsi>65&&rsi<=75)rsiScore=0.5;  // approaching overbought
-  else if(rsi>75)rsiScore=0.1;            // overbought — avoid chasing
-  else if(rsi>=30&&rsi<40)rsiScore=0.65; // mildly oversold — slight discount
-  else rsiScore=0.3;                      // deeply oversold (<30) — distress signal
-  var s2=clamp01((sc.s.mom/100*30+(sc.s.mr==="Long"?30:10)/30*20+sc.s.sa/100*20+rsiScore*30)/100);
+  else if(rsi>65&&rsi<=75)rsiScore=0.5;
+  else if(rsi>75)rsiScore=0.1;
+  else if(rsi>=30&&rsi<40)rsiScore=0.65;
+  else rsiScore=0.3;
+  // ── George-Hwang 52-Week High Proximity ──
+  var wh52=clamp01(sc.s.weekHigh52!=null?sc.s.weekHigh52:0.5);
+  var s2=clamp01((sc.s.mom/100*25+(sc.s.mr==="Long"?30:10)/30*15+sc.s.sa/100*15+rsiScore*25+wh52*20)/100);
+  // ── Momentum Crash Protection ──
+  if(sc.s.mom>85&&m<0.45)s2=clamp01(s2*0.80);
   var p=clamp01(sc.p?sc.p.fscore/9:0.5);
-  var az=sc.a?Math.min(1,Math.max(0,(sc.a.z-1.0)/4.0)):0.5;
-  if(sc.a&&sc.a.distress)az=Math.min(az,0.2);
+  // ── Altman Z: sector-aware ──
+  var isTechOrHealth=sc.sector&&(sc.sector==='Technology'||sc.sector==='Healthcare');
+  var az=sc.a?Math.min(1,Math.max(0,(sc.a.z-1.0)/(isTechOrHealth?6.0:4.0))):0.5;
+  if(sc.a&&sc.a.distress&&!isTechOrHealth)az=Math.min(az,0.2);
   var si=sc.s.shortInt;
   var shortScore=clamp01((si>=5&&si<=15)?0.7:(si<5)?0.5:(si>20)?0.2:0.4);
   // ── Druckenmiller: secular growth + macro momentum + quality + entry timing + beta ──
@@ -1108,6 +1123,7 @@ function getRanked(){
       // EV/EBIT: meaningless when EBIT is negative — set to neutral (25 = score of 0)
       sc.g.evEbit=Math.max(sc.g.evEbit,25);
     }
+    sc.sector=st.s; // pass sector for Altman Z sector-aware scoring
     var baseComp=comp(sc,nw);
     // Factor Consensus Bonus: reward stocks strong across multiple categories
     var cats=0;
