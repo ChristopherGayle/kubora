@@ -193,6 +193,44 @@ async function loadFundamentalsFromBackend(){
     }
   }catch(e){console.log('loadFundamentalsFromBackend failed:',e.message);}
 }
+async function loadQuotesFromBackend(){
+  if(!API_AVAILABLE)return{};
+  try{
+    var r=await fetch(API_BASE+'/stocks/quotes',{signal:AbortSignal.timeout(15000)});
+    if(!r.ok)return{};
+    var qmap=await r.json();
+    if(!qmap||!Object.keys(qmap).length)return{};
+    var matched=0;
+    ALL_STOCKS.forEach(function(st){
+      var q=qmap[st.t]||qmap[st.t.split('.')[0]];
+      if(!q||!q.price)return;
+      matched++;
+      if(+q.price>0)st.p=+(+q.price).toFixed(2);
+      if(q.mc)st.mc=+(+q.mc).toFixed(0);
+      var pr=st.p;
+      var mom=0;if(q.ema200&&pr>0)mom=+((pr/q.ema200-1)*100).toFixed(1);
+      var range52=0;if(q.hi52&&q.lo52&&q.hi52>q.lo52)range52=+((pr-q.lo52)/(q.hi52-q.lo52)*100).toFixed(0);
+      if(!st.live)st.live={};
+      st.live.change=q.change_p;
+      st.live.beta=q.beta;
+      st.live.ema200=q.ema200;
+      st.live.hi52=q.hi52;
+      st.live.lo52=q.lo52;
+      st.live.mom=mom;
+      st.live.range52=range52;
+    });
+    ETFS.forEach(function(etf){
+      var q=qmap[etf.t];
+      if(q){if(q.change_p!=null)etf.liveMom=+(+q.change_p).toFixed(1);if(q.price)etf.lastPrice=+q.price;}
+    });
+    S.prior.forEach(function(pk){
+      var q=qmap[pk.t]||qmap[pk.t.split('.')[0]];
+      if(q&&q.price)pk.curr=+(+q.price).toFixed(2);
+    });
+    console.log('[mexxie] Loaded '+matched+' live quotes from DB');
+    return qmap;
+  }catch(e){console.warn('[mexxie] DB quotes load skipped:',e.message);return{};}
+}
 async function pushFundamentalsToBackend(){
   if(!API_AVAILABLE)return;
   try{
@@ -208,6 +246,19 @@ async function pushFundamentalsToBackend(){
     }
     console.log('Pushed '+tickers.length+' fundamentals to backend');
   }catch(e){console.log('pushFundamentalsToBackend failed:',e.message);}
+}
+
+// Load server-side API key config — tells the frontend which keys are set on Railway.
+// When server has a key, browser doesn't need to enter it.
+async function loadServerConfig(){
+  if(!API_AVAILABLE)return;
+  try{
+    var r=await fetch(API_BASE+'/config',{signal:AbortSignal.timeout(5000)});
+    if(!r.ok)return;
+    var d=await r.json();
+    S.serverKeys=d;
+    console.log('[mexxie] Server keys configured:',Object.keys(d).filter(function(k){return d[k]}).join(', ')||'none');
+  }catch(e){}
 }
 // ===================== STOCK DATA =====================
 var REGION_MAP={"Worldwide":null,"US":"\uD83C\uDDFA\uD83C\uDDF8","Europe":"\uD83C\uDDEA\uD83C\uDDFA","Asia":"\uD83C\uDF0F","S. America":"\uD83C\uDDE7\uD83C\uDDF7","Africa":"\uD83C\uDDFF\uD83C\uDDE6"};
@@ -349,7 +400,7 @@ var ETFS=[
   {t:"SCHD",n:"Schwab US Div Equity",cat:"Dividend",exp:0.06,y:3.4,mom:11.2,r:"US"},
   {t:"AVUV",n:"Avantis US Small Value",cat:"Small Value",exp:0.25,y:1.6,mom:7.9,r:"US"},
   {t:"COWZ",n:"Pacer US Cash Cows 100",cat:"Free Cash Flow",exp:0.49,y:1.9,mom:9.8,r:"US"},
-  {t:"COPY",n:"Tweedy Browne Insider+Val",cat:"Insider Value",exp:0.59,y:1.8,mom:13.2,r:"US"},
+  {t:"QVAL",n:"Alpha Architect US Quant Value",cat:"Deep Value",exp:0.39,y:1.2,mom:11.8,r:"US"},
   {t:"VXUS",n:"Vanguard Total Int'l Stock",cat:"Int'l Broad",exp:0.07,y:3.1,mom:8.4,r:"Worldwide"},
   {t:"VWO",n:"Vanguard FTSE Emerging Mkts",cat:"Emerging Mkt",exp:0.08,y:3.2,mom:6.8,r:"Worldwide"},
   {t:"VEA",n:"Vanguard FTSE Developed",cat:"Developed Int'l",exp:0.05,y:3.0,mom:9.2,r:"Worldwide"},
@@ -371,25 +422,65 @@ var QUANT_STRATEGIES=[
   {name:"Shareholder Yield (Faber)",ret:"~14-16%",desc:"Total capital return: div + buybacks + debt paydown.",cost:"~0.15%"}
 ];
 var STRAT_DETAILS=[
-  {title:"Greenblatt Magic Formula",icon:"\uD83D\uDCCA",why:"From 1988-2004 returned ~30.8% vs S&P 12.4%.",met:"Earnings Yield (EBIT/EV) + ROIC rank + EV/EBIT.",use:"Increase to 30-40% when markets feel overvalued."},
-  {title:"Tweedy Browne Value",icon:"\uD83C\uDFDB\uFE0F",why:"Beat S&P by ~2%/yr for 40 years.",met:"P/B. Insider buying. Dividend yield. FCF yield. Shareholder Yield.",use:"Increase to 25-30% during market downturns."},
-  {title:"Munger Quality/Moat",icon:"\uD83C\uDFF0",why:"Wonderful companies at fair prices. Lower drawdowns.",met:"Economic Moat (1-5). Business quality. Management quality.",use:"Increase to 25-35% when expecting volatility."},
-  {title:"Simons Quantitative",icon:"\uD83D\uDD2C",why:"Medallion Fund: 66% annual returns (30 yrs).",met:"Momentum (12-1 mo). Mean reversion. RSI zone filter.",use:"Increase to 20-25% during trending bull markets."},
-  {title:"Piotroski F-Score",icon:"\uD83E\uDDE0",why:"9 binary signals earn ~23% vs S&P in backtests.",met:"9-point binary: ROA, CFO, leverage, margins.",use:"Increase to 15-20% for small-cap screening."},
-  {title:"Altman Z-Score",icon:"\uD83D\uDEE1\uFE0F",why:"72-80% accuracy predicting bankruptcy 2 years ahead.",met:"Z>2.99=Safe. 1.81-2.99=Grey. <1.81=Distress.",use:"Increase to 10-15% during economic downturns."},
-  {title:"RSI Zone Filter",icon:"\uD83D\uDCC8",why:"RSI reduces buying into overbought rallies.",met:"RSI 40-65: ideal. RSI >75: avoid.",use:"Increase to 10-15% during volatile markets."},
-  {title:"EV/EBIT Multiple",icon:"\u2696\uFE0F",why:"Beats Greenblatt EY by ~2%/yr.",met:"EV/EBIT. <8x = deep value. >20x = expensive.",use:"Increase to 8-12% for pure deep-value."},
-  {title:"Shareholder Yield",icon:"\uD83D\uDCB0",why:"Beats dividend-only by 2-3%/yr.",met:"Div yield + buyback yield + debt paydown.",use:"Increase to 8-12% for international stocks."},
-  {title:"Revenue Growth",icon:"\uD83D\uDCC5",why:"Screens out cyclicals at earnings peaks.",met:"Consecutive quarters with positive YoY growth.",use:"Increase to 5-8% to avoid cyclical traps."},
-  {title:"Short Interest",icon:"\uD83C\uDFAF",why:"5-15% short interest can signal contrarian opportunity.",met:"% of float sold short.",use:"Increase to 4-6% during market recoveries."},
-  {title:"Druckenmiller Growth",icon:"\uD83D\uDE80",why:"~30%/yr at Duquesne Capital. Macro-aligned secular growth with institutional accumulation.",met:"Revenue growth + ROIC quality + EMA momentum (price > EMA200) + Beta 1.0\u20131.8 (macro leverage) + entry timing (not overextended).",use:"Increase to 15-20% in bull markets and early recovery cycles. Reduce to 5% when overvalued/defensive."}
+  {title:"Greenblatt Magic Formula",icon:"📊",cat:"value",perf:"30.8% vs 12.4% S&P (1988–2004)",
+   why:"Joel Greenblatt proved you can beat Wall Street using just two numbers: how cheap a stock is relative to what it earns, and how efficiently the business converts capital into profits. Buy the best-ranked companies on both lists and hold for a year.",
+   deep:"Now enhanced with Gross Profitability (Novy-Marx 2013, NBER) — gross profit divided by total assets. Academic replication across 1963–2024 shows this single metric has a 0.47 Sharpe ratio over 60 years, the highest of any accounting-based factor. It's been added as a 15% weight within the Greenblatt Growth sub-score.",
+   met:"Earnings Yield (EBIT ÷ EV) · Return on Invested Capital (ROIC) · Gross Profitability (GP ÷ Assets, Novy-Marx) · EV/EBIT multiple (when real data available)",
+   use:"Raise to 30–40% when the market feels expensive and growth stocks are priced for perfection. Reduce to 15% in a momentum-driven bull run where cheap stocks keep lagging."},
+  {title:"Tweedy Browne Value",icon:"🏛️",cat:"value",perf:"+2%/yr vs S&P over 40 years",
+   why:"One of the most consistent value managers in history. Buying deeply unloved, underpriced companies — the stocks nobody wants — has beaten the market in every rolling 10-year period since 1934. The key: patience and discipline when everyone else is selling.",
+   met:"Price-to-Book (P/B) · Dividend Yield · Free Cash Flow Yield · Shareholder Yield (dividends + buybacks + debt paydown)",
+   use:"Raise to 25–30% during market downturns and recessions when value stocks are cheapest. Cut to 10% in high-growth bull markets where momentum dominates."},
+  {title:"Munger Quality & Moat",icon:"🏰",cat:"quality",perf:"~20%/yr Berkshire Hathaway (40 yrs)",
+   why:"Charlie Munger changed Warren Buffett's mind: don't just buy cheap companies — buy wonderful companies at fair prices. A business with a real moat (brand power, network effects, switching costs) compounds your wealth for decades without you having to do anything.",
+   deep:"Three new research upgrades added: (1) Gross Profitability (10% weight) — high GP/Assets companies have wider moats in practice. (2) Accruals Ratio — companies whose earnings are backed by real cash flow (low accruals) dramatically outperform those using accounting tricks. (3) Momentum Crash Protection: if a stock shows >85 momentum but quality is below 45%, a 20% score penalty is applied — these low-quality momentum stocks historically crash hardest in reversals (AQR 2024).",
+   met:"Economic Moat (1–5 scale) · Business Quality · Management Quality · Gross Profitability (Novy-Marx) · Accruals Ratio (earnings quality) · Revenue Quality (consistent growth quarters)",
+   use:"Raise to 25–35% during volatile or sideways markets. Wonderful companies with real moats hold their value when cyclical and speculative stocks collapse."},
+  {title:"Simons Quantitative",icon:"🔬",cat:"momentum",perf:"66%/yr Medallion Fund (30 yrs, pre-fees)",
+   why:"Jim Simons proved that pure mathematics finds patterns invisible to human analysts. Price momentum — the tendency for recent winners to keep winning — is one of the most replicated factors in academic finance, found in 40+ countries across 200 years of market data.",
+   deep:"Two research upgrades added: (1) 52-Week High Proximity (George & Hwang 2004, replicated 2024) — stocks trading near their 52-week high have superior forward returns because investor anchoring bias makes people slow to buy breakouts. Stronger signal than raw RSI. (2) Momentum Crash Protection (AQR 2024) — when high-momentum stocks (<85 score) also have low quality (<45%), their score is reduced by 20%. These combos crash hardest in market reversals.",
+   met:"12-1 Month Price Momentum · 52-Week High Proximity (George-Hwang 2004) · RSI Zone Filter (40–65 ideal) · Mean Reversion Signal · Sector Relative Momentum",
+   use:"Raise to 20–25% in strongly trending bull markets. Reduce to 5–10% when the market is reversing sharply or VIX is elevated."},
+  {title:"Piotroski F-Score",icon:"🧠",cat:"quality",perf:"~23% vs S&P in backtests (Piotroski 2000)",
+   why:"Joseph Piotroski designed 9 yes/no questions about a company's finances. Score 7–9 out of 9 and the business is financially strengthening. This is especially powerful for catching value stocks that look cheap but are actually turning around — the ones the crowd has given up on prematurely.",
+   met:"Profitability (3): Is ROA positive? Is cash flow from operations positive? Is ROA improving? · Leverage (3): Did debt ratio fall? Did current ratio improve? Was there no share dilution? · Efficiency (3): Did gross margin improve? Did asset turnover improve? Did revenue grow?",
+   use:"Raise to 15–20% when screening small-cap or beaten-down value stocks. Piotroski cuts false positives — cheap stocks that are cheap because they deserve to be."},
+  {title:"Altman Z-Score",icon:"🛡️",cat:"safety",perf:"72–80% accurate 2 years before bankruptcy",
+   why:"Edward Altman's formula is the financial equivalent of a medical checkup. It combines 5 ratios to assess whether a company is headed toward bankruptcy. Think of it as a filter: no matter how cheap or exciting a stock looks, if it scores in the danger zone, the risk of permanent capital loss is too high.",
+   deep:"The classic 1968 formula was designed for manufacturing companies with heavy assets. Modern tech and healthcare firms are asset-light — they earn huge profits from software and services, not factories. These firms naturally score lower on traditional Z, triggering false distress flags. This screener uses sector-aware thresholds: Technology & Healthcare firms use a wider safe range (divisor 6.0) vs. traditional industries (divisor 4.0). This prevents flagging Apple or Alphabet as 'distressed' when their economics are excellent.",
+   met:"Working Capital ÷ Assets · Retained Earnings ÷ Assets · EBIT ÷ Assets · Market Cap ÷ Total Liabilities · Revenue ÷ Assets — threshold: Z>2.99=Safe · 1.81–2.99=Grey · <1.81=Distress (tech/healthcare use wider safe range)",
+   use:"Raise to 10–15% during economic downturns and credit tightening. Keep at 5–8% in healthy bull markets where most companies are financially sound."},
+  {title:"RSI Zone Filter",icon:"📈",cat:"momentum",perf:"Reduces buying at short-term peaks",
+   why:"RSI (Relative Strength Index) measures whether a stock has been bought too aggressively (overbought) or sold off too harshly (oversold). The sweet spot is 40–65: the stock has real upward momentum but hasn't yet become a crowded trade that everyone piles into at the top.",
+   met:"RSI 30–40: oversold, watch carefully · RSI 40–55: ideal entry zone · RSI 55–65: good momentum continuing · RSI 65–75: elevated, proceed with caution · RSI >75: avoid — overbought, high reversal risk",
+   use:"Raise to 10–15% during rapidly rotating or volatile markets. Acts as a timing filter to reduce buying at short-term price peaks."},
+  {title:"EV/EBIT Multiple",icon:"⚖️",cat:"value",perf:"Requires real EV & EBIT data",
+   why:"A purer valuation multiple than P/E because it includes debt, is capital-structure neutral, and uses operating earnings before interest and non-cash charges. Professional investors use it to compare companies across industries on an apples-to-apples basis.",
+   met:"Enterprise Value ÷ EBIT — lower = cheaper. Only activates when real EV and EBIT data is loaded (Finnhub, FMP, or EODHD). Inactive during simulated mode.",
+   use:"This sleeve is inactive for simulated data. Automatically activates when real fundamental data is loaded via API. Re-enable the weight when your universe has full EV/EBIT coverage."},
+  {title:"Shareholder Yield",icon:"💰",cat:"value",perf:"+2–3%/yr vs dividend-only (Faber 2007)",
+   why:"Companies return cash to shareholders in three ways: paying dividends, buying back their own shares, and paying down debt. Shareholder Yield captures all three. Academic research shows combining all three cash-return streams beats simple dividend yield by 2–3% annually over 20 years.",
+   met:"Dividend Yield + Buyback Yield + Debt Paydown Yield = total % of market cap returned to shareholders each year",
+   use:"Raise to 8–12% for international and income-focused portfolios. Especially powerful for European and emerging market screens where buybacks are less common but dividends are higher."},
+  {title:"Revenue Quality",icon:"📅",cat:"quality",perf:"Filters cyclical peak traps",
+   why:"A company can look fantastic at the top of an economic cycle — revenues booming, margins high — just before everything collapses. Revenue Quality checks whether growth is consistent and sustainable across multiple quarters, not just a one-time cyclical surge.",
+   met:"Consecutive quarters of positive year-over-year revenue growth · Penalizes companies with only a single good quarter at cycle peaks",
+   use:"Raise to 5–8% when screening cyclical sectors (energy, materials, industrials) to avoid companies that look cheap but are near their peak earnings cycle."},
+  {title:"Short Interest",icon:"🏄",cat:"momentum",perf:"Contrarian signal in recoveries",
+   why:"When 5–15% of a stock's shares have been borrowed and sold short (betting the price will fall), any positive surprise can trigger a 'short squeeze': short sellers rush to buy back shares at any price, creating explosive upward moves. This captures that contrarian opportunity.",
+   met:"% of float sold short · 5–15%: contrarian watch · >20%: high distress risk, avoid unless recovery thesis is strong",
+   use:"Raise to 4–6% during market recoveries and rebounds. Avoid raising during bear markets where elevated short interest often reflects real fundamental deterioration."},
+  {title:"Druckenmiller Growth",icon:"🚀",cat:"momentum",perf:"~30%/yr Duquesne Capital (30 yrs)",
+   why:"Stan Druckenmiller made 30% annually not by finding cheap stocks, but by finding companies riding massive, multi-year secular trends — and timing his entry to coincide with institutional money flowing in. Think cloud computing, genomics, AI infrastructure — big-picture winners with the institutional backing to sustain the move.",
+   met:"Revenue growth trend · ROIC quality gate (filters low-quality growth) · EMA200 trend filter (price above 200-day average) · Beta 1.0–1.8 (macro leverage sweet spot) · Entry timing (not overextended from base)",
+   use:"Raise to 15–20% in bull markets and early recovery phases when secular growth themes accelerate. Reduce to 5% in overvalued or defensive market regimes — growth multiples compress the most in downturns."}
 ];
 // ===================== SCORING =====================
 function sR(seed){var x=Math.sin(seed)*10000;return x-Math.floor(x)}
 // Score cache — clears automatically when dataSeed changes (Simulate/Refresh)
 var _SC={};var _SCSeed=null;
 // Deep clone a score object so live-data mutations don't corrupt the cache
-function _cloneSc(r){return{g:Object.assign({},r.g),t:Object.assign({},r.t),m:Object.assign({},r.m),s:Object.assign({},r.s),p:{fscore:r.p.fscore,pf:Object.assign({},r.p.pf)},a:Object.assign({},r.a)}}
+function _cloneSc(r){return{g:Object.assign({},r.g),t:Object.assign({},r.t),m:Object.assign({},r.m),s:Object.assign({},r.s),p:{fscore:r.p.fscore,pf:Object.assign({},r.p.pf)},a:Object.assign({},r.a),eq:Object.assign({},r.eq||{})}}
 function genSc(idx){
   var base=S.dataSeed||1;
   // Clear cache when seed changes (new Simulate or Live Refresh)
@@ -405,13 +496,20 @@ function genSc(idx){
   var revQ=Math.floor(s(27)*9);
   var shortInt=+(s(28)*30).toFixed(1);
   var beta=+(0.4+s(29)*1.8).toFixed(2); // simulated beta 0.4–2.2
+  // ── Novy-Marx: Gross Profitability (Gross Profit / Assets) ──
+  var grossProfit=+(0.10+s(30)*0.65).toFixed(2);
+  // ── George-Hwang: 52-Week High Proximity ──
+  var weekHigh52=+(0.25+s(31)*0.75).toFixed(2);
+  // ── Earnings Quality: Accruals Ratio ──
+  var accruals=+(-0.05+s(32)*0.15).toFixed(3);
   var result={
-    g:{ey:+(5+s(1)*20).toFixed(1),roic:+(8+s(2)*40).toFixed(1),rk:Math.floor(s(3)*100)+1,evEbit:evEbit,hasRealEvEbit:false},
+    g:{ey:+(5+s(1)*20).toFixed(1),roic:+(8+s(2)*40).toFixed(1),rk:Math.floor(s(3)*100)+1,evEbit:evEbit,hasRealEvEbit:false,grossProfit:grossProfit},
     t:{pb:+(0.5+s(4)*3.5).toFixed(2),ins:s(5)>0.5,dy:+(0.5+s(6)*5).toFixed(1),fcf:+(2+s(7)*12).toFixed(1),shY:shY},
     m:{moat:Math.floor(s(8)*5)+1,qual:+(60+s(9)*40).toFixed(0),mgmt:+(50+s(10)*50).toFixed(0),revQ:revQ},
-    s:{mom:+(30+s(11)*70).toFixed(0),mr:s(12)>0.4?"Long":"Neutral",sa:+(40+s(13)*60).toFixed(0),rsi:rsi,shortInt:shortInt,beta:beta},
+    s:{mom:+(30+s(11)*70).toFixed(0),mr:s(12)>0.4?"Long":"Neutral",sa:+(40+s(13)*60).toFixed(0),rsi:rsi,shortInt:shortInt,beta:beta,weekHigh52:weekHigh52},
     p:{fscore:fscore,pf:pf},
-    a:{z:altZ,safe:altZ>2.99,grey:altZ>=1.81&&altZ<=2.99,distress:altZ<1.81}
+    a:{z:altZ,safe:altZ>2.99,grey:altZ>=1.81&&altZ<=2.99,distress:altZ<1.81},
+    eq:{accruals:accruals}
   };
   _SC[idx]=result;
   return _cloneSc(result);
@@ -419,23 +517,31 @@ function genSc(idx){
 function comp(sc,w){
   function clamp01(v){return Math.max(0,Math.min(1,v||0))}
   var evScore=sc.g&&sc.g.hasRealEvEbit?clamp01((25-Math.max(0,+sc.g.evEbit||0))/25):0;
-  var g=clamp01((sc.g.ey/25*35+sc.g.roic/48*35+(100-sc.g.rk)/100*20+evScore*10)/100);
+  // ── Novy-Marx Gross Profitability ──
+  var gpScore=clamp01((sc.g.grossProfit||0)/0.50);
+  var g=clamp01((sc.g.ey/25*30+sc.g.roic/48*25+(100-sc.g.rk)/100*20+evScore*10+gpScore*15)/100);
   var tv=clamp01(((4-Math.min(sc.t.pb,4))/4*20+(sc.t.ins?20:0)+sc.t.dy/5.5*20+sc.t.fcf/14*20+sc.t.shY/15*20)/100);
-  var m=clamp01((sc.m.moat/5*35+sc.m.qual/100*30+sc.m.mgmt/100*20+sc.m.revQ/8*15)/100);
+  // ── Earnings Quality (Accruals) ──
+  var accrualScore=clamp01(1-((sc.eq&&sc.eq.accruals!=null?sc.eq.accruals:0)+0.05)/0.15);
+  var m=clamp01((sc.m.moat/5*25+sc.m.qual/100*25+sc.m.mgmt/100*15+sc.m.revQ/8*15+gpScore*10+accrualScore*10)/100);
   // RSI scoring: ideal 40-65 (momentum but not overbought)
-  // Oversold (<40) gets partial credit — could be a value opportunity, but risky
-  // Deeply oversold (<25) penalised more — often broken fundamentals, not just a dip
   var rsiScore=0;
   var rsi=+sc.s.rsi;
   if(rsi>=40&&rsi<=65)rsiScore=1.0;
-  else if(rsi>65&&rsi<=75)rsiScore=0.5;  // approaching overbought
-  else if(rsi>75)rsiScore=0.1;            // overbought — avoid chasing
-  else if(rsi>=30&&rsi<40)rsiScore=0.65; // mildly oversold — slight discount
-  else rsiScore=0.3;                      // deeply oversold (<30) — distress signal
-  var s2=clamp01((sc.s.mom/100*30+(sc.s.mr==="Long"?30:10)/30*20+sc.s.sa/100*20+rsiScore*30)/100);
+  else if(rsi>65&&rsi<=75)rsiScore=0.5;
+  else if(rsi>75)rsiScore=0.1;
+  else if(rsi>=30&&rsi<40)rsiScore=0.65;
+  else rsiScore=0.3;
+  // ── George-Hwang 52-Week High Proximity ──
+  var wh52=clamp01(sc.s.weekHigh52!=null?sc.s.weekHigh52:0.5);
+  var s2=clamp01((sc.s.mom/100*25+(sc.s.mr==="Long"?30:10)/30*15+sc.s.sa/100*15+rsiScore*25+wh52*20)/100);
+  // ── Momentum Crash Protection ──
+  if(sc.s.mom>85&&m<0.45)s2=clamp01(s2*0.80);
   var p=clamp01(sc.p?sc.p.fscore/9:0.5);
-  var az=sc.a?Math.min(1,Math.max(0,(sc.a.z-1.0)/4.0)):0.5;
-  if(sc.a&&sc.a.distress)az=Math.min(az,0.2);
+  // ── Altman Z: sector-aware ──
+  var isTechOrHealth=sc.sector&&(sc.sector==='Technology'||sc.sector==='Healthcare');
+  var az=sc.a?Math.min(1,Math.max(0,(sc.a.z-1.0)/(isTechOrHealth?6.0:4.0))):0.5;
+  if(sc.a&&sc.a.distress&&!isTechOrHealth)az=Math.min(az,0.2);
   var si=sc.s.shortInt;
   var shortScore=clamp01((si>=5&&si<=15)?0.7:(si<5)?0.5:(si>20)?0.2:0.4);
   // ── Druckenmiller: secular growth + macro momentum + quality + entry timing + beta ──
@@ -464,7 +570,7 @@ function nW(){
   var tot=(w.greenblatt||0)+(w.tweedy||0)+(w.munger||0)+(w.simons||0)+(w.piotroski||0)+(w.altman||0)+(w.rsi||0)+(w.evEbit||0)+(w.shYield||0)+(w.revGrowth||0)+(w.shortInt||0)+(w.druckenmiller||0)||1;
   return{greenblatt:(w.greenblatt||0)/tot,tweedy:(w.tweedy||0)/tot,munger:(w.munger||0)/tot,simons:(w.simons||0)/tot,piotroski:(w.piotroski||0)/tot,altman:(w.altman||0)/tot,rsi:(w.rsi||0)/tot,evEbit:(w.evEbit||0)/tot,shYield:(w.shYield||0)/tot,revGrowth:(w.revGrowth||0)/tot,shortInt:(w.shortInt||0)/tot,druckenmiller:(w.druckenmiller||0)/tot};
 }
-function etfSc(e){var base=S.dataSeed||1;var jitter=(sR(base+e.t.charCodeAt(0))*4)-2;var adjMom=Math.max(-5,e.mom+jitter);return+((Math.max(0,100-e.exp*80)*0.2)+(adjMom/30*40)+(e.y/4*30)).toFixed(1)}
+function etfSc(e){var base=S.dataSeed||1;var jitter=(sR(base+e.t.charCodeAt(0))*4)-2;var adjMom=Math.max(-5,e.mom+jitter);return Math.min(60,+((Math.max(0,100-e.exp*80)*0.2)+(adjMom/30*40)+(e.y/4*30)).toFixed(1))}
 // ===================== UTILITIES =====================
 function refreshData(){S.dataSeed=Math.floor(Math.random()*90000)+10000;S.lastRefresh=new Date();ALL_STOCKS.forEach(function(st){var pctChange=(Math.random()-0.48)*6;st.p=+(st.p*(1+pctChange/100)).toFixed(2)});ETFS.forEach(function(e){var momShift=(Math.random()-0.45)*3;e.mom=+(e.mom+momShift).toFixed(1)});S.prior.forEach(function(pk){var chg=(Math.random()-0.45)*4;pk.curr=+(pk.curr*(1+chg/100)).toFixed(2)});S.refreshCount=(S.refreshCount||0)+1;S.lastSource="Simulated";S.lastCalls=0;S.lastErrors=[];render();persistScores()}
 function fmtTime(d){if(!d)return"Never";var h=d.getHours(),m=d.getMinutes(),s=d.getSeconds();var ampm=h>=12?"PM":"AM";h=h%12||12;return h+":"+(m<10?"0":"")+m+":"+(s<10?"0":"")+s+" "+ampm}
@@ -696,6 +802,25 @@ function applyFinvizData(sc,ticker){
   if(fd.si!=null)sc.s.shortInt=+Math.abs(fd.si).toFixed(1);
   // Quality score from net profit margin: -50%=20, 0%=50, 20%+=100
   if(fd.nm!=null)sc.m.qual=+Math.min(100,Math.max(20,50+fd.nm*2.5)).toFixed(0);
+  // Economic Moat proxy from operating margin (pricing power = durable competitive advantage)
+  // om>25%=wide moat(5), om>15%=narrow-wide(4), om>8%=narrow(3), om>0%=minimal(2), <=0%=none(1)
+  // Blended with gross margin for robustness — both measure pricing power at different levels
+  if(fd.om!=null){
+    var omScore=(fd.om>25?5:fd.om>15?4:fd.om>8?3:fd.om>0?2:1);
+    if(fd.gm!=null){var gmScore=(fd.gm>60?5:fd.gm>40?4:fd.gm>20?3:fd.gm>0?2:1);omScore=Math.round((omScore+gmScore)/2);}
+    sc.m.moat=omScore;
+  }
+  // Management quality proxy: capital efficiency (ROIC/ROE adjusted for leverage) + balance sheet discipline
+  // roic already computed above if fd.roe exists; re-use it to score mgmt 0-100
+  if(fd.roe!=null){
+    var adjRoe2=fd.roe;
+    if(fd.de!=null&&fd.de>0)adjRoe2=fd.roe/(1+Math.min(fd.de,3));
+    var deBonus=(fd.de!=null?(fd.de<0.5?15:fd.de<1.5?8:fd.de<3?0:-10):0);
+    sc.m.mgmt=+Math.min(100,Math.max(0,50+adjRoe2*1.5+deBonus)).toFixed(0);
+  }
+  // Gross Profitability (Novy-Marx): gross margin % → normalised ratio used by gpScore in comp()
+  // gpScore = clamp01(grossProfit/0.50), so fd.gm=50% → grossProfit=0.50 → gpScore=1.0 (top)
+  if(fd.gm!=null&&fd.gm>0)sc.g.grossProfit=+Math.min(1.0,fd.gm/100).toFixed(3);
   // Revenue quality from average of EPS growth + sales growth
   // Scale: 0%=3 (below neutral), 20%=4, 80%=8 — negative growth penalised below 3
   // The previous floor of 4 was too generous for flat/declining businesses
@@ -717,81 +842,71 @@ function applyFinvizData(sc,ticker){
   if(fd.pe!=null&&fd.pe<=0){sc.a.z=Math.min(sc.a.z,2.5);sc.a.safe=false;sc.a.grey=sc.a.z>=1.81;sc.a.distress=sc.a.z<1.81;}
 }
 
+// ── Encrypted Key Vault helpers (AES-GCM + PBKDF2-SHA256) ──────────────────
+function u8ToB64(bytes){var bin="";bytes.forEach(function(b){bin+=String.fromCharCode(b)});return btoa(bin)}
+function b64ToU8(str){var bin=atob(str),out=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)out[i]=bin.charCodeAt(i);return out}
+async function deriveVaultKey(pass,salt){
+  var base=await crypto.subtle.importKey("raw",new TextEncoder().encode(pass),"PBKDF2",false,["deriveKey"]);
+  return crypto.subtle.deriveKey({name:"PBKDF2",salt:salt,iterations:210000,hash:"SHA-256"},base,{name:"AES-GCM",length:256},false,["encrypt","decrypt"]);
+}
+function currentKeyPayload(){
+  return {provider:S.provider||"eodhd",finnhubKey:S.finnhubKey||"",twelveKey:S.twelveKey||"",apiKey:S.apiKey||"",eodhKey:S.eodhKey||"",webhookSecret:S.webhookSecret||""};
+}
+function applyKeyPayload(payload){
+  if(!payload||typeof payload!=="object")throw new Error("invalid payload");
+  if(payload.provider){S.provider=payload.provider;try{localStorage.setItem("mexxie_provider",S.provider)}catch(e){}}
+  S.finnhubKey=payload.finnhubKey||"";S.twelveKey=payload.twelveKey||"";S.apiKey=payload.apiKey||"";S.eodhKey=payload.eodhKey||"";
+  if(payload.webhookSecret!=null){S.webhookSecret=payload.webhookSecret||"";try{localStorage.setItem("mexxie_webhook_secret",S.webhookSecret)}catch(e){}}
+  try{localStorage.setItem("mexxie_finnhub_key",S.finnhubKey);localStorage.setItem("mexxie_twelve_key",S.twelveKey);localStorage.setItem("mexxie_api_key",S.apiKey);localStorage.setItem("mexxie_eodh_key",S.eodhKey)}catch(e){}
+}
+async function encryptKeyVault(payload,pass){
+  var salt=crypto.getRandomValues(new Uint8Array(16));var iv=crypto.getRandomValues(new Uint8Array(12));
+  var key=await deriveVaultKey(pass,salt);
+  var enc=await crypto.subtle.encrypt({name:"AES-GCM",iv:iv},key,new TextEncoder().encode(JSON.stringify(payload)));
+  return {v:1,alg:"AES-GCM",kdf:"PBKDF2-SHA256",iterations:210000,salt:u8ToB64(salt),iv:u8ToB64(iv),ciphertext:u8ToB64(new Uint8Array(enc))};
+}
+async function decryptKeyVault(vault,pass){
+  if(!vault||!vault.salt||!vault.iv||!vault.ciphertext)throw new Error("invalid vault file");
+  var salt=b64ToU8(vault.salt),iv=b64ToU8(vault.iv),cipher=b64ToU8(vault.ciphertext);
+  var key=await deriveVaultKey(pass,salt);
+  var plain=await crypto.subtle.decrypt({name:"AES-GCM",iv:iv},key,cipher);
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
 async function fetchEODHDLive(){
-  var key=S.eodhKey;if(!key){alert("Please enter your EODHD API key in Settings first.");S.tab="settings";render();return}
+  var key=S.eodhKey||"";if(!key&&!(S.serverKeys&&S.serverKeys.eodhd)){alert("Please enter your EODHD API key in Settings first.");S.tab="settings";render();return}
   var callCount=0;var errors=[];
   try{
-  S.loading=true;S.loadingMsg="Connecting to EODHD via API proxy...";try{render()}catch(re){console.error("render error on load start:",re)}
-    // Group stocks by their EODHD exchange — US ADRs + local exchange stocks fetched separately
-    var byExchange={};
-    ALL_STOCKS.forEach(function(st){
-      var exch=eodhdExchange(st.t);var sym=eodhdSymbol(st.t);
-      if(!byExchange[exch])byExchange[exch]=[];byExchange[exch].push(sym);
-    });
-    // ETFs always on US
-    ETFS.forEach(function(e){if(!byExchange['US'])byExchange['US']=[];byExchange['US'].push(e.t)});
-    var totalTickers=ALL_STOCKS.length+ETFS.length;
-    var exchangeList=Object.keys(byExchange);
-
-    var quoteMap={};
-    // Enhancement: use cached bulk data if less than 15 minutes old
-    var cacheAge=Date.now()-_eodhdBulkCache.ts;
-    if(_eodhdBulkCache.quoteMap&&cacheAge<EODHD_BULK_TTL){
-      quoteMap=_eodhdBulkCache.quoteMap;
-      setMsg("Using cached prices ("+Math.round(cacheAge/60000)+"m old) — click Refresh to refetch");
-    }else{
-    setMsg("Fetching "+totalTickers+" tickers across "+exchangeList.length+" exchanges...");
-    var batchSize=100;
+    S.loading=true;S.loadingMsg="Refreshing prices via EODHD...";try{render()}catch(re){console.error("render error on load start:",re)}
+    var exchSet={US:true};
+    ALL_STOCKS.forEach(function(st){exchSet[eodhdExchange(st.t)]=true});
+    var exchangeList=Object.keys(exchSet);
     var exchTotal=exchangeList.length;
+
     for(var ei=0;ei<exchTotal;ei++){
-      var exch=exchangeList[ei];var exchSyms=byExchange[exch];
-      var batches=batchArray(exchSyms,batchSize);
-      for(var b=0;b<batches.length;b++){
-        var batchSyms=batches[b].join(",");
-        var pct=Math.round((ei/exchTotal+((b+1)/batches.length)/exchTotal)*100);
-        setMsg(exch+" "+pct+"% · "+exchSyms.length+" stocks · exchange "+(ei+1)+"/"+exchTotal);
-        try{
-          var r=await fetch(API_BASE+"/eodhd/bulk?key="+encodeURIComponent(key)+"&exchange="+encodeURIComponent(exch)+"&symbols="+encodeURIComponent(batchSyms));
-          callCount+=1;
-          if(!r.ok){var errData=await r.json().catch(function(){return{}});errors.push(exch+" bulk: "+(errData.error||"HTTP "+r.status));continue}
-          var data=await r.json();
-          if(data&&Array.isArray(data)){
-            data.forEach(function(d){
-              var entry={
-                price:d.adjusted_close||d.close,
-                open:d.open,high:d.high,low:d.low,
-                change:d.change_p,
-                mc:d.MarketCapitalization?+(d.MarketCapitalization/1e9).toFixed(0):null,
-                beta:d.Beta,
-                ema50:d.ema_50d,ema200:d.ema_200d,
-                hi52:d.hi_250d,lo52:d.lo_250d,
-                vol:d.volume,avgVol50:d.avgvol_50d,avgVol200:d.avgvol_200d,
-                name:d.name
-              };
-              quoteMap[d.code]=entry; // full code e.g. "NPN.JSE" or "AAPL"
-              var bare=d.code.split('.')[0];if(bare!==d.code)quoteMap[bare]=entry; // also store "NPN"
-            });
-          }
-        }catch(e){errors.push(exch+" batch "+(b+1)+" error: "+e.message)}
-        if(b<batches.length-1)await new Promise(function(r){setTimeout(r,150)});
-      }
-      if(ei<exchTotal-1)await new Promise(function(r){setTimeout(r,200)});
+      var exch=exchangeList[ei];
+      setMsg("Updating "+exch+" prices... ("+(ei+1)+"/"+exchTotal+")");
+      try{
+        var r=await fetch(API_BASE+"/eodhd/update-prices",{
+          method:'POST',headers:{'Content-Type':'application/json','x-webhook-secret':S.webhookSecret||""},
+          body:JSON.stringify({key:key,exchange:exch})
+        });
+        callCount++;
+        if(!r.ok){var ed=await r.json().catch(function(){return{}});errors.push(exch+": "+(ed.error||"HTTP "+r.status));}
+        else{var d=await r.json();setMsg(exch+" \u2192 "+d.updated+"/"+d.total+" updated");}
+      }catch(e){errors.push(exch+" error: "+e.message)}
+      if(ei<exchTotal-1)await new Promise(function(r){setTimeout(r,300)});
     }
-    // Save bulk results to 15-min cache
-    _eodhdBulkCache={ts:Date.now(),quoteMap:quoteMap};
-    } // end cache else block
 
-    // Flat list of all symbols (for dividend fetch filtering)
-    var allSymbols=[];exchangeList.forEach(function(ex){allSymbols=allSymbols.concat(byExchange[ex])});
+    setMsg("Loading prices from database...");
+    await loadQuotesFromBackend();
 
-    // Fetch dividends for top 20 stocks only — saves API calls for large universes
     setMsg("Fetching dividend data for top dividend payers...");
     var divMap={};var oneYearAgo=new Date();oneYearAgo.setFullYear(oneYearAgo.getFullYear()-1);
     var fromDate=oneYearAgo.toISOString().slice(0,10);
-    // Get top 20 highest-price US stocks (likely dividend payers) + any prior picks
     var priorSyms=S.prior.map(function(pk){return eodhdSymbol(pk.t)});
-    var highPriceSyms=allSymbols.filter(function(s){var q=quoteMap[s];return q&&q.price>20}).sort(function(a,b){return (quoteMap[b]?quoteMap[b].price:0)-(quoteMap[a]?quoteMap[a].price:0)}).slice(0,20);
-    var tickersForDiv=Array.from(new Set(priorSyms.concat(highPriceSyms))).slice(0,30);// Deduplicate, max 30
+    var highPriceSyms=ALL_STOCKS.filter(function(s){return s.p>20}).sort(function(a,b){return b.p-a.p}).map(function(s){return eodhdSymbol(s.t)}).slice(0,20);
+    var tickersForDiv=Array.from(new Set(priorSyms.concat(highPriceSyms))).slice(0,30);
     var divBatches=batchArray(tickersForDiv,5);
     for(var di=0;di<divBatches.length;di++){
       try{
@@ -810,55 +925,22 @@ async function fetchEODHDLive(){
       }catch(e){}
       if(di<divBatches.length-1)await new Promise(function(r){setTimeout(r,200)});
     }
-
-    // Map data back to ALL_STOCKS
-    var matched=0;
     ALL_STOCKS.forEach(function(st){
-      var sym=eodhdSymbol(st.t);var q=quoteMap[sym];
-      if(q){
-        matched++;
-        var pr=+q.price;
-        if(pr>0)st.p=+pr.toFixed(2);
-        if(q.mc)st.mc=q.mc;
-        if(q.name&&q.name.length>2)st.n=q.name;
-        // Compute derived metrics
-        var mom=0;if(q.ema200&&pr>0){mom=+((pr/q.ema200-1)*100).toFixed(1)}
-        var range52=0;if(q.hi52&&q.lo52&&q.hi52>q.lo52){range52=+((pr-q.lo52)/(q.hi52-q.lo52)*100).toFixed(0)}
-        // Cap at 25% — prevents penny-stock arithmetic from creating nonsensical yields
-        var divYield=null;if(divMap[sym]&&q.price>0){divYield=+Math.min(0.25,divMap[sym]/q.price).toFixed(4)}
-        st.live={
-          change:q.change,
-          pb:null,// not available on $19.99 plan
-          pe:null,// not available on $19.99 plan
-          roe:null,// not available on $19.99 plan
-          divYield:divYield,
-          fcfYield:null,// not available on $19.99 plan
-          debtEquity:null,
-          // EODHD-specific enrichments
-          beta:q.beta,
-          ema50:q.ema50,ema200:q.ema200,
-          hi52:q.hi52,lo52:q.lo52,
-          mom:mom,// derived from price vs EMA200
-          range52:range52,// 52-week range position 0-100
-          avgVol50:q.avgVol50
-        };
-      }
-    });
-    console.log("EODHD matched "+matched+"/"+ALL_STOCKS.length+" stocks, "+Object.keys(divMap).length+" with dividends");
-
-    // Update ETFs
-    ETFS.forEach(function(etf){var q=quoteMap[etf.t];if(q){if(q.change!=null)etf.mom=+(+q.change).toFixed(1);if(q.price)etf.lastPrice=+q.price}});
-
-    // Update prior picks current prices
-    S.prior.forEach(function(pk){
-      var sym=eodhdSymbol(pk.t);var q=quoteMap[sym];
-      if(q&&q.price)pk.curr=+(+q.price).toFixed(2);
+      var sym=eodhdSymbol(st.t);
+      if(divMap[sym]&&st.p>0){var divYield=+Math.min(0.25,divMap[sym]/st.p).toFixed(4);if(!st.live)st.live={};st.live.divYield=divYield;}
     });
 
     var chainParts=[];
+    if(S.finnhubKey&&API_AVAILABLE){
+      setMsg("Running Finnhub fundamentals fallback...");
+      var fh=await fallbackFinnhubFundamentals(180);
+      callCount+=fh.calls||0;
+      if(fh.errors&&fh.errors.length)errors=errors.concat(fh.errors);
+      if(fh.updated>0)chainParts.push("Finnhub "+fh.updated);
+    }
     if(S.apiKey){
-      setMsg("EODHD complete. Running FMP fallback for unresolved fundamentals...");
-      var fb1=await fallbackFMPForMissing(220);
+      setMsg("Running FMP fallback for remaining unresolved fundamentals...");
+      var fb1=await fallbackFMPForMissing(250);
       callCount+=fb1.calls||0;
       if(fb1.errors&&fb1.errors.length)errors=errors.concat(fb1.errors);
       if(fb1.updated>0)chainParts.push("FMP "+fb1.updated);
@@ -873,9 +955,18 @@ async function fetchEODHDLive(){
 
     S.dataSeed=Math.floor(Math.random()*90000)+10000;
     S.lastRefresh=new Date();S.refreshCount=(S.refreshCount||0)+1;
-    S.lastSource=chainParts.length?("EODHD + "+chainParts.join(" + ")):"EODHD EOD";S.lastCalls=callCount;S.lastErrors=errors;
+    S.lastSource=chainParts.length?("Live \u00b7 EODHD + "+chainParts.join(" + ")):"Live \u00b7 EODHD Quotes";
+    S.lastCalls=callCount;S.lastErrors=errors;
+    S.lastProviderSummary=(function(){
+      var bits=["EODHD exchanges refreshed: "+exchTotal];
+      if(typeof fh!=="undefined")bits.push("Finnhub fundamentals stored: "+(fh.updated||0));
+      if(typeof fb1!=="undefined")bits.push("FMP fundamentals stored: "+(fb1.updated||0)+(fb1.errors&&fb1.errors.length?" (quota/errors)":""));
+      if(typeof fb2!=="undefined")bits.push("Twelve matches: "+(fb2.updated||0));
+      return bits.join(" \u00b7 ");
+    })();
+    S.lastProviderCounts={eodhdExchanges:exchTotal,finnhubFundamentals:(typeof fh!=="undefined"?(fh.updated||0):0),fmpFallback:(typeof fb1!=="undefined"?(fb1.updated||0):0),twelveFallback:(typeof fb2!=="undefined"?(fb2.updated||0):0),evEbitActive:countActiveEvEbit()};
   }catch(e){errors.push("Fatal: "+e.message);S.lastErrors=errors}
-  S.loading=false;S.loadingMsg="";try{render()}catch(re){console.error("render error on load end:",re);try{document.getElementById("app").innerHTML="<div style='padding:40px;color:#ef4444'>Render error — please reload the page.<br><small>"+re.message+"</small></div>"}catch(x){}}
+  S.loading=false;S.loadingMsg="";try{render()}catch(re){console.error("render error on load end:",re);try{document.getElementById("app").innerHTML="<div style='padding:40px;color:#ef4444'>Render error \u2014 please reload the page.<br><small>"+re.message+"</small></div>"}catch(x){}}
   persistScores();
 }
 
@@ -908,7 +999,7 @@ async function fetchFMPLive(){
       // Explicit loss-maker: FMP returned negative PE — mark ey=0 for getRanked guard
       if(q.pe!=null&&q.pe<=0)st.live.lossMarker=true;
     }});
-    ETFS.forEach(function(etf){var q=quoteMap[etf.t];if(q){if(q.change!=null)etf.mom=+q.change.toFixed(1);if(q.price)etf.lastPrice=q.price}});
+    ETFS.forEach(function(etf){var q=quoteMap[etf.t];if(q){if(q.change!=null)etf.liveMom=+q.change.toFixed(1);if(q.price)etf.lastPrice=q.price}});
     S.prior.forEach(function(pk){var sym=fmpTicker(pk.t);var q=quoteMap[sym];if(q&&q.price)pk.curr=+q.price.toFixed(2)});
     S.dataSeed=Math.floor(Math.random()*90000)+10000;S.lastRefresh=new Date();S.refreshCount=(S.refreshCount||0)+1;S.lastSource="FMP Live";S.lastCalls=callCount;S.lastErrors=errors;
   }catch(e){errors.push("Fatal: "+e.message);S.lastErrors=errors}
@@ -916,7 +1007,7 @@ async function fetchFMPLive(){
 }
 
 async function fetchFinnhubLive(){
-  var key=S.finnhubKey;if(!key){alert("Please enter your Finnhub API key in Settings first.");S.tab="settings";render();return}
+  var key=S.finnhubKey||"";if(!key&&!(S.serverKeys&&S.serverKeys.finnhub)){alert("Please enter your Finnhub API key in Settings first.");S.tab="settings";render();return}
   S.loading=true;S.loadingMsg="Connecting to Finnhub...";render();
   var metricsCache={};var cacheUsed=0;
   try{var cached=JSON.parse(localStorage.getItem("mexxie_finnhub_cache"));if(cached&&cached.ts&&(Date.now()-cached.ts)<24*60*60*1000){metricsCache=cached.data||{};cacheUsed=Object.keys(metricsCache).length}}catch(e){}
@@ -933,7 +1024,7 @@ async function fetchFinnhubLive(){
     try{localStorage.setItem("mexxie_finnhub_cache",JSON.stringify({ts:Date.now(),data:metricsCache}))}catch(e){}
     Object.keys(metricsCache).forEach(function(tk){if(!quoteMap[tk])quoteMap[tk]={};var cr=metricsCache[tk];if(cr){quoteMap[tk].pb=cr.pb;quoteMap[tk].pe=cr.pe;quoteMap[tk].divYield=cr.divYield;quoteMap[tk].fcfYield=cr.fcfYield;quoteMap[tk].debtEquity=cr.debtEquity;quoteMap[tk].roe=cr.roe;if(cr.mc)quoteMap[tk].mc=cr.mc}});
     ALL_STOCKS.forEach(function(st){var sym=fmpTicker(st.t);var q=quoteMap[sym];if(q){if(q.price)st.p=+q.price.toFixed(2);if(q.mc)st.mc=+(q.mc/1000).toFixed(0);st.live={pb:q.pb,roe:q.roe,divYield:q.divYield,fcfYield:q.fcfYield,pe:q.pe,change:q.change,debtEquity:q.debtEquity}}});
-    ETFS.forEach(function(etf){var q=quoteMap[etf.t];if(q){if(q.change!=null)etf.mom=+q.change.toFixed(1);if(q.price)etf.lastPrice=q.price}});
+    ETFS.forEach(function(etf){var q=quoteMap[etf.t];if(q){if(q.change!=null)etf.liveMom=+q.change.toFixed(1);if(q.price)etf.lastPrice=q.price}});
     S.prior.forEach(function(pk){var sym=fmpTicker(pk.t);var q=quoteMap[sym];if(q&&q.price)pk.curr=+q.price.toFixed(2)});
     S.dataSeed=Math.floor(Math.random()*90000)+10000;S.lastRefresh=new Date();S.refreshCount=(S.refreshCount||0)+1;S.lastSource="Finnhub Live";S.lastCalls=callCount;S.lastErrors=errors;
   }catch(e){errors.push("Fatal: "+e.message);S.lastErrors=errors}
@@ -998,9 +1089,10 @@ var S={
   finnhubKey:(function(){try{return localStorage.getItem("mexxie_finnhub_key")||""}catch(e){return""}})(),
   twelveKey:(function(){try{return localStorage.getItem("mexxie_twelve_key")||""}catch(e){return""}})(),
   eodhKey:(function(){try{return localStorage.getItem("mexxie_eodh_key")||""}catch(e){return""}})(),
+  webhookSecret:(function(){try{return localStorage.getItem("mexxie_webhook_secret")||""}catch(e){return""}})(),
   finvizData:(function(){try{var d=localStorage.getItem("mexxie_finviz_data");return d?JSON.parse(d):{}}catch(e){return{}}}()),
   finvizTs:(function(){try{return+localStorage.getItem("mexxie_finviz_ts")||null}catch(e){return null}}()),
-  loading:false,loadingMsg:"",lastSource:"Simulated",lastCalls:0,lastErrors:[],
+  loading:false,loadingMsg:"",lastSource:"Simulated",serverKeys:{eodhd:false,finnhub:false,fmp:false,twelve:false},lastCalls:0,lastErrors:[],
   expandedStock:null,
   capSize:(function(){try{return localStorage.getItem("mexxie_cap_size")||"all"}catch(e){return"all"}})(),
   prior:[
@@ -1046,9 +1138,45 @@ function getRanked(){
   });
   // Build O(1) ticker→index map once instead of O(n) findIndex per stock (avoids O(n²) freeze with 3000+ stocks)
   var tickerIdx={};ALL_STOCKS.forEach(function(s,i){tickerIdx[s.t]=i});
+  // Pre-compute Greenblatt Magic Formula Rank from real EY + ROIC data.
+  // Greenblatt: rank stocks by earnings yield (high = good) and by ROIC (high = good),
+  // sum the two rank numbers, lowest combined rank = rank 1 (best).
+  // This replaces the seed-based random rk (1-100) with a real cross-pool percentile rank.
+  var gfRankMap={};
+  if(hasRealFundCoverage){
+    var gfScores=pool.map(function(st){
+      var fd=S.finvizData[normalizeTicker(st.t)]||{};var lv=st.live||{};
+      var peV=fd.pe!=null?+fd.pe:(lv.pe!=null?+lv.pe:null);
+      var ey=peV!=null&&peV>0?Math.min(25,100/peV):null;
+      var roeV=fd.roe!=null?+fd.roe:(lv.roe!=null?+lv.roe*100:null);
+      var deV=fd.de!=null?+fd.de:(lv.debtEquity!=null?+lv.debtEquity:null);
+      var roic=roeV!=null?(deV!=null&&deV>0?roeV/(1+Math.min(deV,3)):roeV):null;
+      return{t:st.t,ey:ey,roic:roic};
+    }).filter(function(x){return x.ey!=null&&x.roic!=null});
+    if(gfScores.length>=5){
+      var byEY=gfScores.slice().sort(function(a,b){return b.ey-a.ey});
+      var byROIC=gfScores.slice().sort(function(a,b){return b.roic-a.roic});
+      var eyRank={},roicRank={};
+      byEY.forEach(function(x,i){eyRank[x.t]=i+1});
+      byROIC.forEach(function(x,i){roicRank[x.t]=i+1});
+      var combRanks=[];
+      gfScores.forEach(function(x){
+        var cr=(eyRank[x.t]||gfScores.length)+(roicRank[x.t]||gfScores.length);
+        combRanks.push({t:x.t,cr:cr});
+      });
+      combRanks.sort(function(a,b){return a.cr-b.cr});
+      var n=combRanks.length;
+      combRanks.forEach(function(x,i){
+        // rank 1 (best Greenblatt stock) gets rk=1, worst gets rk=100
+        gfRankMap[x.t]=Math.max(1,Math.round(1+(i/(n-1||1))*99));
+      });
+    }
+  }
   var arr=pool.map(function(st,i){
     var idx=tickerIdx[st.t];if(idx===undefined)idx=-1;var sc=genSc(idx);
     applyFinvizData(sc,st.t); // real fundamentals from Finviz CSV (overrides simulation)
+    // Override simulated rk with real Greenblatt rank when available
+    if(gfRankMap[st.t]!=null)sc.g.rk=gfRankMap[st.t];
     if(st.live){
       var peN=numOrNull(st.live.pe),pbN=numOrNull(st.live.pb),roeN=numOrNull(st.live.roe),fcfN=numOrNull(st.live.fcfYield);
       if(st.live.pb!=null)sc.t.pb=+Math.abs(st.live.pb).toFixed(2);
@@ -1069,6 +1197,12 @@ function getRanked(){
       if(st.live.range52!=null&&st.live.ema200>0)sc.s.rsi=+Math.min(85,Math.max(15,st.live.range52*0.7+15)).toFixed(0);
       // Druckenmiller: real beta from EODHD (ideal 1.0-1.8 for macro-aligned growth)
       if(st.live.beta!=null){var bn=+(st.live.beta);if(!isNaN(bn))sc.s.beta=+bn.toFixed(2);}
+      // George-Hwang 52-week high proximity (EODHD): range52 0–100 → weekHigh52 0.0–1.0
+      // 1.0 = at 52-week high (buy signal), 0.0 = at 52-week low
+      if(st.live.range52!=null)sc.s.weekHigh52=+Math.min(1.0,Math.max(0,st.live.range52/100)).toFixed(3);
+      // Market regime per stock: price above EMA200 = Long trend, below = Neutral
+      // Replaces seed-based random Long/Neutral with real trend data
+      if(st.live.ema200>0&&st.p>0)sc.s.mr=st.p>st.live.ema200?"Long":"Neutral";
     }
     // Propagate FMP loss-marker (negative PE) into EY=0 so the guard below fires
     if(st.live&&st.live.lossMarker)sc.g.ey=0;
@@ -1108,6 +1242,7 @@ function getRanked(){
       // EV/EBIT: meaningless when EBIT is negative — set to neutral (25 = score of 0)
       sc.g.evEbit=Math.max(sc.g.evEbit,25);
     }
+    sc.sector=st.s; // pass sector for Altman Z sector-aware scoring
     var baseComp=comp(sc,nw);
     // Factor Consensus Bonus: reward stocks strong across multiple categories
     var cats=0;
@@ -1253,7 +1388,7 @@ function renderRefreshBar(){
   else{var isLive=S.lastSource.indexOf("Live")>=0;var dotColor=isLive?t.buy:"#f59e0b";left.appendChild(h("div",{style:{width:"8px",height:"8px",borderRadius:"4px",background:dotColor}}));var stxt=h("div",{style:{fontSize:"11px",color:t.ts}});stxt.appendChild(h("span",{style:{fontWeight:"600",color:t.text}},fmtTime(S.lastRefresh)));stxt.appendChild(h("span",null," \u00B7 "+fmtDate(S.lastRefresh)));left.appendChild(stxt)}
   inner.appendChild(left);
   var right=h("div",{style:{display:"flex",alignItems:"center",gap:"6px"}});
-  var hasKey=S.provider==="eodhd"?S.eodhKey:S.provider==="finnhub"?S.finnhubKey:S.apiKey;
+  var sk=S.serverKeys||{};var hasKey=S.provider==="eodhd"?(S.eodhKey||sk.eodhd):S.provider==="finnhub"?(S.finnhubKey||sk.finnhub):(S.apiKey||sk.fmp);
   right.appendChild(h("button",{style:{display:"flex",alignItems:"center",gap:"5px",padding:"6px 12px",borderRadius:"8px",border:"1px solid "+t.buy+"66",background:hasKey?t.buyGlow:t.tm+"15",color:hasKey?t.buy:t.tm,fontSize:"11px",fontWeight:"600",fontFamily:"inherit",opacity:S.loading?"0.5":"1"},onClick:function(){
     // Set loading=true immediately (before async call) to prevent double-click race condition
     if(S.loading)return;
@@ -1566,7 +1701,8 @@ function renderETF(){
     top.appendChild(lt);top.appendChild(h("div",{className:"mono",style:{fontSize:"18px",fontWeight:"700",color:t.accent}},e.comp.toFixed(0)));
     card.appendChild(top);card.appendChild(bdg(e.cat,catCol(e.cat)));
     var met=h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:"6px",marginTop:"8px"}});
-    [{l:"12m Ret",v:(e.mom>=0?"+":"")+e.mom+"%",c:e.mom>10?t.buy:e.mom<0?t.sell:t.text},{l:"Yield",v:e.y+"%",c:t.text},{l:"Expense",v:e.exp+"%",c:e.exp>0.3?t.sell:t.buy}].forEach(function(m){
+    var retLabel=e.liveMom!=null?"Today":"12m Ret";var retVal=e.liveMom!=null?e.liveMom:e.mom;var retDisp=(retVal>=0?"+":"")+retVal+"%"+(e.liveMom!=null?" · 12m:"+(e.mom>=0?"+":"")+e.mom+"%":"");
+    [{l:retLabel,v:retDisp,c:retVal>0?t.buy:retVal<0?t.sell:t.text},{l:"Yield",v:e.y+"%",c:t.text},{l:"Expense",v:e.exp+"%",c:e.exp>0.3?t.sell:t.buy}].forEach(function(m){
       var d=h("div");d.appendChild(h("div",{style:{fontSize:"9px",color:t.tm,textTransform:"uppercase"}},m.l));
       d.appendChild(h("div",{className:"mono",style:{fontSize:"12px",fontWeight:"600",color:m.c}},m.v));met.appendChild(d);
     });
@@ -1718,53 +1854,155 @@ function renderPrior(){
 function renderStrat(){
   var t=T();var f=document.createDocumentFragment();
   f.appendChild(renderValuationBanner(t,false));
-  var intro=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",marginBottom:"14px"}});
-  intro.appendChild(h("h3",{style:{margin:"0 0 6px",fontSize:"15px",fontWeight:"700"}},"\ud83c\udfaf Understanding the Multi-Factor Strategy"));
-  intro.appendChild(h("p",{style:{margin:"0 0 10px",fontSize:"11px",color:t.ts,lineHeight:"1.7"}},"This screener combines 11 investment strategies from legendary investors into a single composite score. Each strategy examines a different dimension of stock quality. Combining them creates a robust, all-weather scoring system."));
-  var introGuide=[
-    ["\ud83d\udd22","HOW SCORING WORKS:","Each stock receives a score from every enabled strategy. Scores are weighted by your Settings percentages and summed into a composite. Top-scoring stocks become your picks."],
-    ["\u2696\ufe0f","FACTOR DIVERSIFICATION:","Just as you diversify across stocks, diversifying across factors protects against any single strategy underperforming."],
-    ["\ud83d\udd27","CUSTOMIZE IN SETTINGS:","Every strategy has a weight slider in the Settings tab. Read each strategy below to understand when to increase or decrease its influence."]
+
+  // Category palette
+  var CAT={
+    value:{label:"Value",color:"#6366f1",bg:"rgba(99,102,241,0.10)",border:"rgba(99,102,241,0.30)"},
+    quality:{label:"Quality",color:"#10b981",bg:"rgba(16,185,129,0.10)",border:"rgba(16,185,129,0.30)"},
+    momentum:{label:"Momentum",color:"#3b82f6",bg:"rgba(59,130,246,0.10)",border:"rgba(59,130,246,0.30)"},
+    safety:{label:"Safety",color:"#f59e0b",bg:"rgba(245,158,11,0.10)",border:"rgba(245,158,11,0.30)"}
+  };
+
+  // ── Hero Intro ──
+  var hero=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"14px",padding:"20px",marginBottom:"14px"}});
+  var heroTop=h("div",{style:{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:"12px",marginBottom:"12px"}});
+  var heroTxt=h("div");
+  heroTxt.appendChild(h("h3",{style:{margin:"0 0 4px",fontSize:"16px",fontWeight:"800",letterSpacing:"-0.3px"}},"Multi-Factor Investment Engine"));
+  heroTxt.appendChild(h("p",{style:{margin:"0",fontSize:"12px",color:t.ts,lineHeight:"1.6"}},"12 time-tested strategies from the world\u2019s greatest investors, combined into one composite score. Each examines a different dimension of stock quality \u2014 value, quality, momentum, and safety."));
+  heroTop.appendChild(heroTxt);
+  var heroBadge=h("div",{style:{flexShrink:"0",textAlign:"center",padding:"10px 14px",borderRadius:"10px",background:"rgba(99,102,241,0.10)",border:"1px solid rgba(99,102,241,0.25)"}});
+  heroBadge.appendChild(h("div",{style:{fontSize:"20px",fontWeight:"800",color:"#6366f1",lineHeight:"1"}},"12"));
+  heroBadge.appendChild(h("div",{style:{fontSize:"9px",color:t.ts,textTransform:"uppercase",letterSpacing:"1px",marginTop:"2px"}},"Strategies"));
+  heroTop.appendChild(heroBadge);
+  hero.appendChild(heroTop);
+
+  // Formula visual
+  var formula=h("div",{style:{display:"flex",gap:"6px",flexWrap:"wrap",alignItems:"center",padding:"10px 12px",background:t.surface||t.bg,borderRadius:"8px",marginBottom:"12px"}});
+  formula.appendChild(h("span",{style:{fontSize:"10px",fontWeight:"700",color:t.tm,textTransform:"uppercase",letterSpacing:"1px",marginRight:"4px"}},"Score ="));
+  [["Value","#6366f1","Cheap + cash return"],["Quality","#10b981","Moat + earnings quality"],["Momentum","#3b82f6","Trend + timing"],["Safety","#f59e0b","Bankruptcy check"]].forEach(function(item,i){
+    if(i>0) formula.appendChild(h("span",{style:{color:t.tm,fontSize:"13px",fontWeight:"700",lineHeight:"1"}},"＋"));
+    var pillLabel=h("span",{style:{fontSize:"10px",fontWeight:"700",color:item[1]}});
+    pillLabel.textContent=item[0];
+    var pillSub=h("span",{style:{fontSize:"9px",color:t.ts,lineHeight:"1.2"}});
+    pillSub.textContent=item[2];
+    var pillWrap=h("div",{style:{padding:"5px 10px",borderRadius:"8px",background:item[1]+"18",border:"1px solid "+item[1]+"40",display:"inline-flex",flexDirection:"column",alignItems:"center",gap:"1px"}});
+    pillWrap.appendChild(pillLabel);pillWrap.appendChild(pillSub);
+    formula.appendChild(pillWrap);
+  });
+  hero.appendChild(formula);
+
+  // 3 how-it-works rows
+  var hows=[
+    ["🔢","How scoring works:","Every stock is scored by each enabled strategy. Scores are multiplied by your weight settings and summed into a composite. The top-ranked stocks become your picks."],
+    ["⚖️","Factor diversification:","Just as you diversify across stocks, diversifying across factors protects you when any single strategy is out of favour. Value underperforms in bull runs; momentum underperforms in crashes — balanced exposure smooths returns."],
+    ["🔧","Customize in Settings:","Every strategy has a weight slider. Each card below explains exactly when to raise or lower that strategy\u2019s influence based on market conditions."]
   ];
-  introGuide.forEach(function(item){
-    var row=h("div",{style:{display:"flex",gap:"8px",marginBottom:"8px",alignItems:"flex-start"}});
-    row.appendChild(h("span",{style:{fontSize:"13px",flexShrink:"0",lineHeight:"1.4"}},item[0]));
+  hows.forEach(function(item){
+    var row=h("div",{style:{display:"flex",gap:"10px",marginBottom:"8px",alignItems:"flex-start"}});
+    row.appendChild(h("span",{style:{fontSize:"14px",flexShrink:"0",marginTop:"1px"}},item[0]));
     var txt=h("div",{style:{fontSize:"11px",lineHeight:"1.6"}});
     txt.appendChild(h("span",{style:{fontWeight:"700",color:t.text}},item[1]+" "));
     txt.appendChild(h("span",{style:{color:t.ts}},item[2]));
     row.appendChild(txt);
-    intro.appendChild(row);
+    hero.appendChild(row);
   });
-  f.appendChild(intro);
-  STRAT_DETAILS.forEach(function(s,i){
-    var c=h("div",{className:"fade-in",style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",marginBottom:"12px",animationDelay:(i*50)+"ms"}});
-    var hd=h("div",{style:{display:"flex",alignItems:"center",gap:"8px",marginBottom:"10px"}});
-    hd.appendChild(h("span",{style:{fontSize:"22px"}},s.icon));
-    hd.appendChild(h("h3",{style:{margin:"0",fontSize:"14px",fontWeight:"600"}},s.title));c.appendChild(hd);
-    c.appendChild(h("div",{style:{fontSize:"10px",color:t.tm,textTransform:"uppercase",letterSpacing:"1px",marginBottom:"4px"}},"Why This Weight"));
-    c.appendChild(h("p",{style:{margin:"0 0 12px",fontSize:"12px",color:t.ts,lineHeight:"1.6"}},s.why));
-    if(s.deep){
-      c.appendChild(h("div",{style:{fontSize:"10px",color:t.tm,textTransform:"uppercase",letterSpacing:"1px",marginBottom:"4px"}},"Deep Dive"));
-      c.appendChild(h("p",{style:{margin:"0 0 12px",fontSize:"11px",color:t.ts,lineHeight:"1.7"}},s.deep));
-    }
-    c.appendChild(h("div",{style:{fontSize:"10px",color:t.tm,textTransform:"uppercase",letterSpacing:"1px",marginBottom:"4px"}},"Key Metrics"));
-    c.appendChild(h("p",{style:{margin:"0 0 12px",fontSize:"12px",color:t.text,lineHeight:"1.5"}},s.met));
-    if(s.use){
-      var useBox=h("div",{style:{padding:"8px 12px",background:t.accentGlow||t.surface,borderRadius:"8px",borderLeft:"3px solid "+t.accent}});
-      useBox.appendChild(h("div",{style:{fontSize:"10px",fontWeight:"700",color:t.accent,textTransform:"uppercase",letterSpacing:"1px",marginBottom:"3px"}},"\u2191\u2193 When to Adjust"));
-      useBox.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,lineHeight:"1.6"}},s.use));
-      c.appendChild(useBox);
-    }
-    f.appendChild(c);
+  f.appendChild(hero);
+
+  // ── Category Legend ──
+  var legRow=h("div",{style:{display:"flex",gap:"8px",flexWrap:"wrap",marginBottom:"14px"}});
+  Object.values(CAT).forEach(function(c){
+    var p=h("div",{style:{display:"flex",alignItems:"center",gap:"6px",padding:"5px 10px",borderRadius:"20px",background:c.bg,border:"1px solid "+c.border}});
+    var dot=h("div",{style:{width:"7px",height:"7px",borderRadius:"50%",background:c.color,flexShrink:"0"}});
+    p.appendChild(dot);
+    p.appendChild(h("span",{style:{fontSize:"11px",fontWeight:"600",color:c.color}},c.label));
+    legRow.appendChild(p);
   });
-  var ec=h("div",{className:"fade-in",style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",animationDelay:"250ms"}});
-  ec.appendChild(h("h3",{style:{margin:"0 0 8px",fontSize:"14px",fontWeight:"600"}},"\ud83d\udccc Why 8 Stock Recommendations?"));
-  ec.appendChild(h("p",{style:{margin:"0",fontSize:"12px",color:t.ts,lineHeight:"1.6"}},"~90% of diversification benefit at 8-12 stocks across sectors. Default of 8 = ~12.5% position sizes. Adjustable from 5-30 in Settings."));
-  f.appendChild(ec);
-  var gc=h("div",{className:"fade-in",style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",marginTop:"12px",animationDelay:"300ms"}});
-  gc.appendChild(h("h3",{style:{margin:"0 0 8px",fontSize:"14px",fontWeight:"600"}},"\ud83c\udf0d Why Global Diversification?"));
-  gc.appendChild(h("p",{style:{margin:"0",fontSize:"12px",color:t.ts,lineHeight:"1.6"}},"US stocks represent ~60% of world market cap. International diversification reduces portfolio volatility. The screener applies the same multi-factor framework worldwide."));
-  f.appendChild(gc);
+  f.appendChild(legRow);
+
+  // ── Strategy Cards by Category ──
+  var catOrder=["value","quality","momentum","safety"];
+  var catLabels={value:"Value — Buying at a Discount",quality:"Quality — Durable Business Strength",momentum:"Momentum — Riding the Right Trend",safety:"Safety — Avoiding Permanent Loss"};
+  catOrder.forEach(function(catKey){
+    var cc=CAT[catKey];
+    var strategies=STRAT_DETAILS.filter(function(s){return s.cat===catKey});
+    if(!strategies.length) return;
+    // Category header
+    var catHdr=h("div",{style:{display:"flex",alignItems:"center",gap:"10px",margin:"4px 0 10px",paddingBottom:"8px",borderBottom:"1px solid "+cc.border}});
+    var catDot=h("div",{style:{width:"10px",height:"10px",borderRadius:"50%",background:cc.color,flexShrink:"0"}});
+    catHdr.appendChild(catDot);
+    catHdr.appendChild(h("span",{style:{fontSize:"12px",fontWeight:"700",color:cc.color,textTransform:"uppercase",letterSpacing:"1px"}},catLabels[catKey]));
+    f.appendChild(catHdr);
+
+    strategies.forEach(function(s,i){
+      var isInactive=s.title==="EV/EBIT Multiple";
+      var card=h("div",{className:"fade-in",style:{background:t.card,borderRadius:"12px",marginBottom:"10px",overflow:"hidden",animationDelay:(i*60)+"ms",border:"1px solid "+t.border,borderLeft:"3px solid "+cc.color+(isInactive?"66":"")}});
+      var inner=h("div",{style:{padding:"14px 16px"}});
+
+      // Card top: icon + title + perf badge
+      var cardTop=h("div",{style:{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:"10px",marginBottom:"10px"}});
+      var titleRow=h("div",{style:{display:"flex",alignItems:"center",gap:"8px"}});
+      titleRow.appendChild(h("span",{style:{fontSize:"20px",lineHeight:"1"}},s.icon));
+      var titleCol=h("div");
+      titleCol.appendChild(h("div",{style:{fontSize:"14px",fontWeight:"700",color:t.text,lineHeight:"1.3"}},s.title));
+      var catPill=h("span",{style:{display:"inline-block",padding:"1px 7px",borderRadius:"10px",fontSize:"9px",fontWeight:"600",background:cc.bg,color:cc.color,marginTop:"3px"}},cc.label+(isInactive?" · Inactive":""));
+      titleCol.appendChild(catPill);
+      titleRow.appendChild(titleCol);
+      cardTop.appendChild(titleRow);
+      if(s.perf){
+        var perfBadge=h("div",{style:{flexShrink:"0",padding:"4px 8px",borderRadius:"6px",background:isInactive?"rgba(100,116,139,0.12)":cc.bg,border:"1px solid "+(isInactive?"rgba(100,116,139,0.25)":cc.border),textAlign:"right"}});
+        perfBadge.appendChild(h("div",{style:{fontSize:"9px",color:isInactive?t.tm:cc.color,fontWeight:"700",lineHeight:"1.3",whiteSpace:"nowrap"}},s.perf));
+        cardTop.appendChild(perfBadge);
+      }
+      inner.appendChild(cardTop);
+
+      // Plain English why
+      inner.appendChild(h("p",{style:{margin:"0 0 10px",fontSize:"12px",color:t.ts,lineHeight:"1.65"}},s.why));
+
+      // Deep dive block
+      if(s.deep){
+        var deepBox=h("div",{style:{padding:"10px 12px",background:cc.bg,borderRadius:"8px",marginBottom:"10px",borderLeft:"2px solid "+cc.color}});
+        deepBox.appendChild(h("div",{style:{fontSize:"9px",fontWeight:"700",color:cc.color,textTransform:"uppercase",letterSpacing:"1px",marginBottom:"4px"}},"🔬 Research-Backed Enhancement"));
+        deepBox.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,lineHeight:"1.65"}},s.deep));
+        inner.appendChild(deepBox);
+      }
+
+      // Key metrics
+      var metBox=h("div",{style:{padding:"8px 12px",background:t.surface||t.bg,borderRadius:"8px",marginBottom:"10px",border:"1px solid "+t.border}});
+      metBox.appendChild(h("div",{style:{fontSize:"9px",fontWeight:"700",color:t.tm,textTransform:"uppercase",letterSpacing:"1px",marginBottom:"4px"}},"Key Metrics"));
+      metBox.appendChild(h("div",{style:{fontSize:"11px",color:t.text,lineHeight:"1.55"}},s.met));
+      inner.appendChild(metBox);
+
+      // When to adjust
+      if(s.use){
+        var useBox=h("div",{style:{padding:"8px 12px",background:isInactive?"rgba(100,116,139,0.08)":cc.bg,borderRadius:"8px",borderLeft:"2px solid "+(isInactive?t.border:cc.color)}});
+        useBox.appendChild(h("div",{style:{fontSize:"9px",fontWeight:"700",color:isInactive?t.tm:cc.color,textTransform:"uppercase",letterSpacing:"1px",marginBottom:"3px"}},"↑↓ When to Adjust"));
+        useBox.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,lineHeight:"1.6"}},s.use));
+        inner.appendChild(useBox);
+      }
+
+      card.appendChild(inner);
+      f.appendChild(card);
+    });
+  });
+
+  // ── Footer insight cards ──
+  var footerCards=[
+    {icon:"📌",title:"Why 8 Stock Recommendations?",body:"Academic research shows ~90% of the diversification benefit of owning 30 stocks is captured by just 8–12 stocks spread across sectors. The default of 8 = ~12.5% position sizes, large enough to matter, small enough to stay diversified. Adjustable from 5–30 in Settings."},
+    {icon:"🌍",title:"Why Screen Globally?",body:"US stocks represent ~60% of world market cap. International diversification reduces portfolio volatility because regional economies cycle differently. The same 12-factor engine applies worldwide \u2014 the mathematics of value, quality, and momentum work in Tokyo and Frankfurt just as in New York."},
+    {icon:"🏆",title:"Why Combine All 12 Strategies?",body:"No single strategy works in all market environments. Value lags in bull markets. Momentum crashes in corrections. Quality holds in recessions. By weighting all 12 and adjusting via Market Regime presets in Settings, the screener is built to find the best opportunities in any economic environment \u2014 not just the conditions of the last 5 years."}
+  ];
+  footerCards.forEach(function(fc,i){
+    var fc_div=h("div",{className:"fade-in",style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",marginBottom:"10px",animationDelay:(600+i*60)+"ms"}});
+    var fRow=h("div",{style:{display:"flex",gap:"10px",alignItems:"flex-start"}});
+    fRow.appendChild(h("span",{style:{fontSize:"20px",flexShrink:"0",marginTop:"1px"}},fc.icon));
+    var fTxt=h("div");
+    fTxt.appendChild(h("div",{style:{fontSize:"13px",fontWeight:"700",marginBottom:"5px",color:t.text}},fc.title));
+    fTxt.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,lineHeight:"1.65"}},fc.body));
+    fRow.appendChild(fTxt);
+    fc_div.appendChild(fRow);
+    f.appendChild(fc_div);
+  });
+
   return f;
 }
 
@@ -1774,7 +2012,7 @@ function renderSettings(){
   // Market Regime Selector
   var mrg=h("div",{style:{background:t.card,border:"1px solid "+t.border,borderRadius:"12px",padding:"16px",marginBottom:"14px",maxWidth:"600px"}});
   mrg.appendChild(h("h3",{style:{margin:"0 0 4px",fontSize:"15px",fontWeight:"700"}},"\ud83c\udf21\ufe0f Market Regime \u2014 One-Click Weight Adjustment"));
-  mrg.appendChild(h("p",{style:{margin:"0 0 12px",fontSize:"11px",color:t.ts,lineHeight:"1.7"}},"Select your assessment of current market conditions. This instantly adjusts all 11 strategy weights to an optimized allocation for that regime."));
+  mrg.appendChild(h("p",{style:{margin:"0 0 12px",fontSize:"11px",color:t.ts,lineHeight:"1.7"}},"Select your assessment of current market conditions. This instantly adjusts all 12 strategy weights to an optimized allocation for that regime."));
   var mrGuide=[
     ["\ud83d\udcca","SHILLER CAPE:","10-year inflation-adjusted P/E. CAPE >25 predicts 4\u20135%/yr returns. CAPE <15 predicts 10\u201312%/yr."],
     ["\ud83c\udfe6","BUFFETT INDICATOR:","Market cap / GDP. Above 120% = overvalued. Below 80% = undervalued."],
@@ -1907,6 +2145,21 @@ function renderSettings(){
   }},"Save & Test"));
   urlBtnRow.appendChild(urlStatus);
   urlSection.appendChild(urlBtnRow);
+
+  // Webhook Secret — required to call import-exchange, fetch-fundamentals, update-prices on Railway
+  urlSection.appendChild(h("div",{style:{marginTop:"14px",paddingTop:"12px",borderTop:"1px solid "+t.border}}));
+  urlSection.appendChild(h("label",{style:{fontSize:"12px",fontWeight:"600",display:"block",marginBottom:"4px",color:t.text}},"🔑 Webhook Secret"));
+  urlSection.appendChild(h("p",{style:{margin:"0 0 6px",fontSize:"11px",color:t.ts,lineHeight:"1.5"}},"Set WEBHOOK_SECRET on Railway, then paste the same value here. Protects Import / Fetch Fundamentals / Update Prices from unauthorized calls. Leave blank if running locally without a secret."));
+  var wsInput=h("input",{type:"password",value:S.webhookSecret||"",placeholder:"Paste your WEBHOOK_SECRET value here…",
+    style:{width:"100%",padding:"8px 10px",borderRadius:"8px",border:"1px solid "+t.border,
+      background:t.surface,color:t.text,fontSize:"12px",fontFamily:"'JetBrains Mono',monospace",
+      outline:"none",transition:"border .2s",boxSizing:"border-box"},
+    onInput:function(e){S.webhookSecret=e.target.value;try{localStorage.setItem("mexxie_webhook_secret",S.webhookSecret)}catch(x){}},
+    onFocus:function(){this.style.borderColor=t.accent},onBlur:function(){this.style.borderColor=t.border}
+  });
+  urlSection.appendChild(wsInput);
+  if(S.webhookSecret){urlSection.appendChild(h("div",{style:{fontSize:"10px",color:t.buy,marginTop:"3px"}},"✅ Webhook secret saved"));}
+
   f.appendChild(urlSection);
 
   // API Data Provider
@@ -1927,7 +2180,7 @@ function renderSettings(){
     var edRow=h("div",{style:{marginBottom:"14px"}});
     edRow.appendChild(h("label",{style:{fontSize:"12px",fontWeight:"600",display:"block",marginBottom:"4px",color:t.text}},"EODHD API Key"));
     edRow.appendChild(h("p",{style:{fontSize:"11px",color:t.tm,marginBottom:"6px",lineHeight:"1.4"}},"100K calls/day \u00b7 EOD prices + market cap + beta + EMAs + dividends. Sign up at eodhd.com"));
-    var edInput=h("input",{type:"password",value:S.eodhKey||"",placeholder:"Paste your EODHD API key here...",style:{
+    var edInput=h("input",{type:"password",value:S.eodhKey||"",placeholder:S.serverKeys&&S.serverKeys.eodhd?"✅ Configured on Railway — leave blank to use server key":"Paste your EODHD API key here...",style:{
       width:"100%",padding:"10px 12px",borderRadius:"8px",border:"1px solid "+t.border,
       background:t.surface,color:t.text,fontSize:"13px",fontFamily:"'JetBrains Mono',monospace",
       outline:"none",transition:"border .2s"
@@ -1980,7 +2233,7 @@ function renderSettings(){
     var fhRow=h("div",{style:{marginBottom:"14px"}});
     fhRow.appendChild(h("label",{style:{fontSize:"12px",fontWeight:"600",display:"block",marginBottom:"4px",color:t.text}},"Finnhub API Key"));
     fhRow.appendChild(h("p",{style:{fontSize:"11px",color:t.tm,marginBottom:"6px",lineHeight:"1.4"}},"Free: 60 calls/min, NO daily limit. Sign up at finnhub.io/register"));
-    var fhInput=h("input",{type:"password",value:S.finnhubKey||"",placeholder:"Paste your Finnhub API key here...",style:{
+    var fhInput=h("input",{type:"password",value:S.finnhubKey||"",placeholder:S.serverKeys&&S.serverKeys.finnhub?"✅ Configured on Railway — leave blank to use server key":"Paste your Finnhub API key here...",style:{
       width:"100%",padding:"10px 12px",borderRadius:"8px",border:"1px solid "+t.border,
       background:t.surface,color:t.text,fontSize:"13px",fontFamily:"'JetBrains Mono',monospace",
       outline:"none",transition:"border .2s"
@@ -2163,22 +2416,17 @@ function renderSettings(){
   // Step 1 + Step 2 in a row
   var fvStepRow=h("div",{style:{display:"flex",gap:"10px",flexWrap:"wrap",marginBottom:"12px"}});
 
-  // Step 1 — Open Finviz
-  var step1=h("div",{style:{flex:"1",minWidth:"160px",padding:"10px 12px",background:t.bg,border:"1px solid "+t.border,borderRadius:"8px"}});
-  step1.appendChild(h("div",{style:{fontSize:"10px",fontWeight:"700",color:t.tm,letterSpacing:".5px",marginBottom:"6px"}},"STEP 1"));
-  step1.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,marginBottom:"8px",lineHeight:"1.5"}},"Open Finviz Screener, then click Export at the bottom-right of the page."));
-  step1.appendChild(h("button",{style:{
-    width:"100%",padding:"8px",borderRadius:"7px",border:"none",
-    background:"#1a56db",color:"#fff",fontSize:"11px",fontWeight:"700",fontFamily:"inherit",cursor:"pointer"
-  },onClick:function(){
-    window.open("https://finviz.com/screener.ashx?v=111","_blank");
-  }},"🔗 Open Finviz Screener"));
+  // Step 1 — Finviz paywall notice
+  var step1=h("div",{style:{flex:"1",minWidth:"160px",padding:"10px 12px",background:t.bg,border:"1px solid #f59e0b44",borderRadius:"8px"}});
+  step1.appendChild(h("div",{style:{fontSize:"10px",fontWeight:"700",color:"#f59e0b",letterSpacing:".5px",marginBottom:"6px"}},"⚠️ FINVIZ ELITE REQUIRED"));
+  step1.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,marginBottom:"8px",lineHeight:"1.6"}},"Finviz CSV export now requires Elite ($24.96/mo). If you have Elite, use the Financial screener view and export with columns: Ticker, P/E, P/B, Gross Margin, Oper. Margin, Net Margin, ROE, ROA, Debt/Eq, Current Ratio, EPS next Y, Sales past 5Y, Float Short, Insider Own."));
+  step1.appendChild(h("div",{style:{fontSize:"11px",color:t.buy,lineHeight:"1.5",padding:"6px 8px",background:t.buy+"11",borderRadius:"6px"}},"✅ EODHD Live Refresh (already paid) covers all the same metrics — use that instead."));
   fvStepRow.appendChild(step1);
 
-  // Step 2 — Upload CSV
+  // Step 2 — Upload CSV (Elite users only)
   var step2=h("div",{style:{flex:"1",minWidth:"160px",padding:"10px 12px",background:t.bg,border:"1px solid "+t.border,borderRadius:"8px"}});
-  step2.appendChild(h("div",{style:{fontSize:"10px",fontWeight:"700",color:t.tm,letterSpacing:".5px",marginBottom:"6px"}},"STEP 2"));
-  step2.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,marginBottom:"8px",lineHeight:"1.5"}},"Upload the downloaded CSV. Parses and imports automatically — no copy-paste needed."));
+  step2.appendChild(h("div",{style:{fontSize:"10px",fontWeight:"700",color:t.tm,letterSpacing:".5px",marginBottom:"6px"}},"UPLOAD CSV (ELITE ONLY)"));
+  step2.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,marginBottom:"8px",lineHeight:"1.5"}},"Have Finviz Elite? Upload your exported CSV. Parses and imports automatically — the only metric EODHD doesn't provide is Insider Ownership %."));
   // Hidden file input
   var fvFileInput=h("input",{type:"file",accept:".csv",style:{display:"none"}});
   fvFileInput.onchange=function(e){
@@ -2224,14 +2472,56 @@ function renderSettings(){
   }
   dc.appendChild(fvSec);
 
+  // \u2500\u2500 Secure Key Vault \u2014 encrypted backup/restore for API keys \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+  var vaultCard=h("div",{style:{marginBottom:"14px",padding:"12px 14px",background:t.surface,border:"1px solid "+t.border,borderRadius:"10px"}});
+  vaultCard.appendChild(h("div",{style:{fontSize:"12px",fontWeight:"700",color:t.text,marginBottom:"4px"}},"\ud83d\udd10 Secure Key Vault"));
+  vaultCard.appendChild(h("div",{style:{fontSize:"11px",color:t.ts,lineHeight:"1.5",marginBottom:"10px"}},"Export your current API keys to an encrypted (AES-GCM + PBKDF2) vault file, then import them after a browser reset using only your passphrase. CLI helper: scripts/mexxie_key_vault.mjs. macOS Keychain helpers: scripts/mexxie_keychain_store.sh + scripts/mexxie_keychain_to_vault.mjs. Safari restore: scripts/mexxie_safari_restore_vault.sh."));
+  var vaultRow=h("div",{style:{display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap"}});
+  var vaultInput=h("input",{type:"file",accept:"application/json,.json",style:{display:"none"}});
+  var vaultStatus=h("span",{style:{fontSize:"10px",color:t.tm}},"No vault action yet.");
+  vaultInput.onchange=function(e){
+    var file=e.target.files&&e.target.files[0];if(!file)return;
+    var pass=prompt("Enter your vault passphrase");
+    if(!pass){vaultInput.value="";return;}
+    file.text().then(function(raw){return decryptKeyVault(JSON.parse(raw),pass)}).then(function(payload){
+      applyKeyPayload(payload);vaultStatus.textContent="\u2705 Vault imported. Keys restored locally.";vaultStatus.style.color=t.buy;vaultInput.value="";render();
+    }).catch(function(err){vaultStatus.textContent="\u274c Vault import failed: "+(err&&err.message?err.message:"wrong passphrase or invalid file");vaultStatus.style.color=t.sell;vaultInput.value="";});
+  };
+  vaultRow.appendChild(h("button",{style:{padding:"6px 12px",borderRadius:"8px",border:"1px solid "+t.accent+"66",background:t.accentGlow,color:t.accent,fontSize:"11px",fontWeight:"600",fontFamily:"inherit"},onClick:async function(){
+    var pass1=prompt("Create a vault passphrase (min 8 chars recommended)");if(!pass1)return;
+    if(pass1.length<8){if(!confirm("Passphrase is short. Continue anyway?"))return;}
+    var pass2=prompt("Re-enter the vault passphrase");if(pass1!==pass2){vaultStatus.textContent="\u274c Passphrases did not match.";vaultStatus.style.color=t.sell;return;}
+    try{var vault=await encryptKeyVault(currentKeyPayload(),pass1);var blob=new Blob([JSON.stringify(vault,null,2)],{type:"application/json"});var url=URL.createObjectURL(blob);var a=document.createElement("a");a.href=url;a.download="mexxie-key-vault.json";a.click();URL.revokeObjectURL(url);vaultStatus.textContent="\u2705 Encrypted vault downloaded.";vaultStatus.style.color=t.buy;}catch(err){vaultStatus.textContent="\u274c Vault export failed: "+(err&&err.message?err.message:"unknown error");vaultStatus.style.color=t.sell;}
+  }},"Export Encrypted Vault"));
+  vaultRow.appendChild(h("button",{style:{padding:"6px 12px",borderRadius:"8px",border:"1px solid "+t.border,background:t.card,color:t.text,fontSize:"11px",fontWeight:"600",fontFamily:"inherit"},onClick:function(){vaultInput.click();}},"Import Vault"));
+  vaultRow.appendChild(vaultStatus);
+  vaultCard.appendChild(vaultInput);
+  vaultCard.appendChild(vaultRow);
+  var pasteWrap=h("div",{style:{marginTop:"10px"}});
+  pasteWrap.appendChild(h("label",{style:{fontSize:"10px",fontWeight:"700",letterSpacing:".04em",color:t.tm,display:"block",marginBottom:"6px"}},"PASTE ENCRYPTED VAULT JSON"));
+  var vaultText=h("textarea",{placeholder:'{"v":1,...}',style:{width:"100%",minHeight:"120px",padding:"10px 12px",borderRadius:"8px",border:"1px solid "+t.border,background:t.card,color:t.text,fontSize:"12px",lineHeight:"1.5",fontFamily:"'JetBrains Mono',monospace",resize:"vertical",outline:"none"}});
+  pasteWrap.appendChild(vaultText);
+  pasteWrap.appendChild(h("div",{style:{display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap",marginTop:"8px"}},[
+    h("button",{style:{padding:"6px 12px",borderRadius:"8px",border:"1px solid "+t.border,background:t.surface,color:t.text,fontSize:"11px",fontWeight:"600",fontFamily:"inherit"},onClick:function(){
+      var raw=(vaultText.value||"").trim();if(!raw){vaultStatus.textContent="\u26a0\ufe0f Paste vault JSON first.";vaultStatus.style.color="#f59e0b";return;}
+      var pass=prompt("Enter your vault passphrase");if(!pass)return;
+      Promise.resolve().then(function(){return decryptKeyVault(JSON.parse(raw),pass)}).then(function(payload){
+        applyKeyPayload(payload);vaultStatus.textContent="\u2705 Pasted vault imported. Keys restored locally.";vaultStatus.style.color=t.buy;vaultText.value="";render();
+      }).catch(function(err){vaultStatus.textContent="\u274c Vault import failed: "+(err&&err.message?err.message:"wrong passphrase or invalid JSON");vaultStatus.style.color=t.sell;});
+    }},"Import Pasted Vault"),
+    h("span",{style:{fontSize:"10px",color:t.tm}},"Use this if the file picker is inconvenient (e.g. Safari).")
+  ]));
+  vaultCard.appendChild(pasteWrap);
+  dc.appendChild(vaultCard);
+
   // Clear cache
   var cacheRow=h("div",{style:{display:"flex",gap:"8px",alignItems:"center",marginBottom:"14px"}});
   cacheRow.appendChild(h("button",{style:{
     padding:"6px 12px",borderRadius:"8px",border:"1px solid "+t.border,
     background:t.surface,color:t.tm,fontSize:"11px",fontWeight:"600",fontFamily:"inherit"
   },onClick:function(){
-    try{localStorage.removeItem("mexxie_ratios_cache");localStorage.removeItem("mexxie_finnhub_cache");localStorage.removeItem("mexxie_api_key");localStorage.removeItem("mexxie_finnhub_key");localStorage.removeItem("mexxie_twelve_key");localStorage.removeItem("mexxie_eodh_key")}catch(e){}
-    S.apiKey="";S.finnhubKey="";S.twelveKey="";S.eodhKey="";
+    try{localStorage.removeItem("mexxie_ratios_cache");localStorage.removeItem("mexxie_finnhub_cache");localStorage.removeItem("mexxie_api_key");localStorage.removeItem("mexxie_finnhub_key");localStorage.removeItem("mexxie_twelve_key");localStorage.removeItem("mexxie_eodh_key");localStorage.removeItem("mexxie_webhook_secret")}catch(e){}
+    S.apiKey="";S.finnhubKey="";S.twelveKey="";S.eodhKey="";S.webhookSecret="";
     alert("All caches and keys cleared.");render();
   }},"\ud83d\uddd1 Clear All Cache"));
   var cacheInfo="";
@@ -2293,7 +2583,7 @@ function renderFatalError(err){
     await checkAPI();
     console.log('API available:',API_AVAILABLE);
     if(API_AVAILABLE){
-      await Promise.all([loadStockUniverse(),loadPriorPicks(),loadFundamentalsFromBackend()]);
+      await Promise.all([loadStockUniverse(),loadPriorPicks(),loadFundamentalsFromBackend(),loadQuotesFromBackend(),loadServerConfig()]);
     }
     render();
     // Async: load market valuation

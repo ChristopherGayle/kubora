@@ -102,8 +102,8 @@ async function eodhdFetch(path, apiKey) {
 
 // GET /api/eodhd/bulk?symbols=AAPL,MSFT&exchange=US&key=xxx
 router.get('/bulk', async (req, res) => {
-  const key = req.query.key;
-  if (!key) return res.status(400).json({ error: 'key required' });
+  const key = req.query.key || process.env.EODHD_KEY;
+  if (!key) return res.status(400).json({ error: 'key required — set EODHD_KEY env var or pass ?key=' });
 
   const exchange = req.query.exchange || 'US';
   const symbols = req.query.symbols || '';
@@ -120,8 +120,8 @@ router.get('/bulk', async (req, res) => {
 
 // GET /api/eodhd/eod/:symbol?from=YYYY-MM-DD&to=YYYY-MM-DD&key=xxx
 router.get('/eod/:symbol', async (req, res) => {
-  const key = req.query.key;
-  if (!key) return res.status(400).json({ error: 'key required' });
+  const key = req.query.key || process.env.EODHD_KEY;
+  if (!key) return res.status(400).json({ error: 'key required — set EODHD_KEY env var or pass ?key=' });
 
   const symbol = req.params.symbol; // e.g. AAPL.US
   let path = '/eod/' + encodeURIComponent(symbol) + '?';
@@ -139,8 +139,8 @@ router.get('/eod/:symbol', async (req, res) => {
 
 // GET /api/eodhd/div/:symbol?from=YYYY-MM-DD&key=xxx
 router.get('/div/:symbol', async (req, res) => {
-  const key = req.query.key;
-  if (!key) return res.status(400).json({ error: 'key required' });
+  const key = req.query.key || process.env.EODHD_KEY;
+  if (!key) return res.status(400).json({ error: 'key required — set EODHD_KEY env var or pass ?key=' });
 
   const symbol = req.params.symbol;
   let path = '/div/' + encodeURIComponent(symbol) + '?';
@@ -156,8 +156,8 @@ router.get('/div/:symbol', async (req, res) => {
 
 // GET /api/eodhd/test?key=xxx — quick connection test
 router.get('/test', async (req, res) => {
-  const key = req.query.key;
-  if (!key) return res.status(400).json({ error: 'key required' });
+  const key = req.query.key || process.env.EODHD_KEY;
+  if (!key) return res.status(400).json({ error: 'key required — set EODHD_KEY env var or pass ?key=' });
 
   try {
     const data = await eodhdFetch('/eod/AAPL.US?filter=last_close', key);
@@ -206,8 +206,9 @@ router.get('/exchanges', (req, res) => {
 router.post('/import-exchange', async (req, res) => {
   if (!db.isPg) return res.status(400).json({ error: 'PostgreSQL required' });
 
-  const { exchange, key } = req.body;
-  if (!exchange || !key) return res.status(400).json({ error: 'exchange and key required' });
+  const { exchange, key: _key3 } = req.body;
+  const key = _key3 || process.env.EODHD_KEY;
+  if (!exchange || !key) return res.status(400).json({ error: 'exchange required — set EODHD_KEY env var or pass key in body' });
 
   let rawData;
   try {
@@ -288,9 +289,10 @@ function mapSector(raw) { return SECTOR_MAP[raw] || (raw ? raw.trim() : 'Other')
 // Map EODHD fundamentals response → prism_fundamentals format
 function mapEodhdFundamentals(data) {
   if (!data) return null;
-  const H = data.Highlights || {};
-  const V = data.Valuation  || {};
-  const G = data.General    || {};
+  const H = data.Highlights     || {};
+  const V = data.Valuation      || {};
+  const G = data.General        || {};
+  const SS = data.ShareStatistics || {};
   function safeN(v) { if (v == null || v === '' || isNaN(+v)) return null; const n = +v; return n === 0 ? 0 : +n.toFixed(2); }
   // EODHD returns ratios as decimals (0.15 = 15%) — multiply by 100
   const dy  = safeN(H.DividendYield != null ? H.DividendYield * 100 : null);
@@ -305,10 +307,12 @@ function mapEodhdFundamentals(data) {
   // Gross margin: derive from GrossProfitTTM / RevenueTTM if possible
   let gm = null;
   if (H.GrossProfitTTM && H.RevenueTTM && +H.RevenueTTM > 0) gm = safeN((+H.GrossProfitTTM / +H.RevenueTTM) * 100);
+  // Short interest: ShortPercentOfFloat is already a fraction (0.05 = 5%) — multiply by 100
+  const si = safeN(SS.ShortPercentOfFloat != null ? SS.ShortPercentOfFloat * 100 : null);
   const fd = {
     pe: safeN(H.PERatio || V.TrailingPE),
     pb: safeN(H.PriceBookMRQ || V.PriceBookMRQ),
-    dy, roe, roa, om, nm, eg, sg, gm,
+    dy, roe, roa, om, nm, eg, sg, gm, si,
     enterpriseValue: ev,
     marketCap: mc,
     _src: 'eodhd',
@@ -339,7 +343,7 @@ async function storeEodhdFundamentals(map) {
         null, null, // de, cr — not in Highlights
         fd.gm??null, fd.om??null, fd.nm??null,
         fd.eg??null, fd.sg??null,
-        null, null, null, null, // eqg, io, si, fcf
+        null, null, fd.si??null, null, // eqg, io, si, fcf
         null, // ev_ebit
         fd.enterpriseValue??null,
         null, // ebit_per_share
@@ -364,8 +368,9 @@ async function storeEodhdFundamentals(map) {
 // Returns { fetched, stored, total, offset, hasMore }
 router.post('/fetch-fundamentals', async (req, res) => {
   if (!db.isPg) return res.status(400).json({ error: 'PostgreSQL required' });
-  const { key, exchange, offset = 0, limit = 100 } = req.body;
-  if (!key || !exchange) return res.status(400).json({ error: 'key and exchange required' });
+  const { key: _key, exchange, offset = 0, limit = 100 } = req.body;
+  const key = _key || process.env.EODHD_KEY;
+  if (!key || !exchange) return res.status(400).json({ error: 'exchange required — set EODHD_KEY env var or pass key in body' });
 
   const safeExch = db.esc(exchange.toUpperCase());
   const safeLimit = Math.min(200, Math.max(1, parseInt(limit) || 100));
@@ -394,7 +399,7 @@ router.post('/fetch-fundamentals', async (req, res) => {
   async function fetchOne(ticker) {
     const symbol = `${ticker}.${exchange.toUpperCase()}`;
     try {
-      const data = await eodhdFetch(`/fundamentals/${encodeURIComponent(symbol)}?filter=Highlights,Valuation,General`, key);
+      const data = await eodhdFetch(`/fundamentals/${encodeURIComponent(symbol)}?filter=Highlights,Valuation,General,ShareStatistics`, key);
       const fd = mapEodhdFundamentals(data);
       if (fd) {
         fundMap[ticker] = fd;
@@ -440,8 +445,9 @@ router.post('/fetch-fundamentals', async (req, res) => {
 // Fetches bulk EOD data for an exchange and updates prices + market cap in DB
 router.post('/update-prices', async (req, res) => {
   if (!db.isPg) return res.status(400).json({ error: 'PostgreSQL required' });
-  const { key, exchange } = req.body;
-  if (!key || !exchange) return res.status(400).json({ error: 'key and exchange required' });
+  const { key: _key2, exchange } = req.body;
+  const key = _key2 || process.env.EODHD_KEY;
+  if (!key || !exchange) return res.status(400).json({ error: 'exchange required — set EODHD_KEY env var or pass key in body' });
 
   let rawData;
   try {
@@ -452,13 +458,24 @@ router.post('/update-prices', async (req, res) => {
 
   if (!Array.isArray(rawData)) return res.status(502).json({ error: 'Unexpected EODHD response' });
 
-  // Build price/mc map
+  // Build price/mc map with full live metrics from EODHD extended bulk
+  // Coerce to finite number or null — never NaN, otherwise it becomes the literal string "NaN" in SQL and breaks the batch.
+  const finiteOrNull = v => { const n = +v; return Number.isFinite(n) ? n : null; };
   const priceMap = {};
   for (const row of rawData) {
     if (row.code && row.close != null) {
+      const closeN = finiteOrNull(row.close);
+      if (closeN == null) continue;       // skip rows with non-numeric close
+      const mcN = finiteOrNull(row.market_capitalization);
       priceMap[row.code.toUpperCase()] = {
-        price: +row.close || 0,
-        mc: row.market_capitalization != null ? +(+row.market_capitalization / 1e9).toFixed(3) : null
+        price: closeN,
+        mc: mcN != null ? +(mcN / 1e9).toFixed(3) : null,
+        change_p: finiteOrNull(row.change_p),
+        ema200: finiteOrNull(row.ema_200d),
+        hi52: finiteOrNull(row.hi_250d),
+        lo52: finiteOrNull(row.lo_250d),
+        beta: finiteOrNull(row.Beta),
+        volume: (() => { const v = finiteOrNull(row.volume); return v == null ? null : Math.round(v); })()
       };
     }
   }
@@ -485,7 +502,26 @@ router.post('/update-prices', async (req, res) => {
     }
   }
 
-  console.log(`[eodhd] update-prices ${exchange}: ${updated} updated from ${rawData.length} rows`);
+  // Upsert ALL returned tickers (including ETFs) to prism_prices for browser DB reads
+  const allTickers = Object.keys(priceMap);
+  for (let i = 0; i < allTickers.length; i += BATCH) {
+    const batch = allTickers.slice(i, i + BATCH);
+    const vals = batch.map(ticker => {
+      const p = priceMap[ticker];
+      // Numeric-or-NULL renderer: rejects NaN (would become "NaN" string in SQL) and non-finite values.
+      const sn = v => (v != null && Number.isFinite(+v)) ? (+v) : 'NULL';
+      return `('${db.esc(ticker)}',${sn(p.price)},${sn(p.change_p)},${sn(p.mc)},${sn(p.ema200)},${sn(p.hi52)},${sn(p.lo52)},${sn(p.beta)},${sn(p.volume)},NOW())`;
+    }).join(',');
+    await db.exec(
+      `INSERT INTO prism_prices (ticker,price,change_p,mc,ema200,hi52,lo52,beta,volume,updated_at) VALUES ${vals}
+       ON CONFLICT (ticker) DO UPDATE SET
+         price=EXCLUDED.price, change_p=EXCLUDED.change_p, mc=EXCLUDED.mc,
+         ema200=EXCLUDED.ema200, hi52=EXCLUDED.hi52, lo52=EXCLUDED.lo52,
+         beta=EXCLUDED.beta, volume=EXCLUDED.volume, updated_at=EXCLUDED.updated_at`
+    );
+  }
+
+  console.log(`[eodhd] update-prices ${exchange}: ${updated} stocks, ${allTickers.length} prices stored`);
   res.json({ updated, total: rawData.length, exchange });
 });
 

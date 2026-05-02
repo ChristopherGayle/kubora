@@ -2,22 +2,35 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 
+// Whitelists for user-supplied filters — keep raw input from reaching SQL
+const ALLOWED_REGIONS = new Set(['Worldwide','US','Europe','Asia','S. America','Africa','Canada','Oceania','Middle East']);
+const ALLOWED_SECTORS = new Set(['All','Technology','Healthcare','Finance','Consumer','Energy','Industrial','Materials','Utilities','Real Estate','Telecom','Other']);
+function safeRegion(r) { return (typeof r === 'string' && ALLOWED_REGIONS.has(r)) ? r : null; }
+function safeSector(s) { return (typeof s === 'string' && ALLOWED_SECTORS.has(s)) ? s : null; }
+function safeTicker(t) {
+  if (typeof t !== 'string') return '';
+  return /^[A-Z0-9._-]+$/i.test(t) ? t.toUpperCase() : '';
+}
+function n(v) { const x = +v; return (Number.isFinite(x)) ? x : 0; }
+
 // GET /api/stocks — list stock universe
 router.get('/', async (req, res) => {
-  const { region, sector, limit } = req.query;
+  const region = safeRegion(req.query.region);
+  const sector = safeSector(req.query.sector);
+  const limit  = req.query.limit;
   let sql;
 
   if (db.isPg) {
     let where = ['active = true'];
-    if (region && region !== 'Worldwide') where.push("region = '" + db.esc(region) + "'");
-    if (sector && sector !== 'All') where.push("sector = '" + db.esc(sector) + "'");
+    if (region && region !== 'Worldwide') where.push("region = '" + region + "'");
+    if (sector && sector !== 'All') where.push("sector = '" + sector + "'");
     sql = 'SELECT DISTINCT ON (ticker) ticker, name, sector, region, country_flag, price, market_cap_bn, active, exchange ' +
       'FROM prism_stock_universe WHERE ' + where.join(' AND ') + ' ORDER BY ticker, ts DESC';
     if (limit) sql = 'SELECT * FROM (' + sql + ') sub LIMIT ' + Math.min(5000, Math.max(1, parseInt(limit) || 500));
   } else {
     let where = [];
-    if (region && region !== 'Worldwide') where.push("region = '" + db.esc(region) + "'");
-    if (sector && sector !== 'All') where.push("sector = '" + db.esc(sector) + "'");
+    if (region && region !== 'Worldwide') where.push("region = '" + region + "'");
+    if (sector && sector !== 'All') where.push("sector = '" + sector + "'");
     sql = 'SELECT ticker, name, sector, region, country_flag, price, market_cap_bn, active FROM prism_stock_universe';
     if (where.length) sql += ' WHERE ' + where.join(' AND ');
     sql += ' LATEST ON ts PARTITION BY ticker';
@@ -64,16 +77,35 @@ router.post('/', async (req, res) => {
     const chunk = stocks.slice(i, i + 50);
     const values = chunk.map(s => {
       const ex = s.ex || s.exchange || null;
-      return "(NOW(),'" + db.esc(s.t) + "','" + db.esc(s.n) + "','" + db.esc(s.s) + "','" +
-        db.esc(s.r) + "','" + db.esc(s.co) + "'," + (s.p || 0) + ',' + (s.mc || 0) + ',true,' +
+      const safeT = safeTicker(s.t);
+      // Skip rows with invalid tickers — they would corrupt the batch otherwise
+      if (!safeT) return null;
+      return "(NOW(),'" + safeT + "','" + db.esc(s.n) + "','" + db.esc(s.s) + "','" +
+        db.esc(s.r) + "','" + db.esc(s.co) + "'," + n(s.p) + ',' + n(s.mc) + ',true,' +
         (ex ? "'" + db.esc(ex) + "'" : 'NULL') + ')';
-    }).join(',');
+    }).filter(Boolean).join(',');
+    if (!values) continue;
     const sql = 'INSERT INTO prism_stock_universe (ts,ticker,name,sector,region,country_flag,price,market_cap_bn,active,exchange) VALUES ' + values + ';';
     const result = await db.exec(sql);
     if (result.ok) inserted += chunk.length;
     else errors.push(result.error);
   }
   res.json({ inserted, errors: errors.length ? errors : undefined });
+});
+
+// GET /api/stocks/quotes — live price snapshot from prism_prices (populated by EODHD update-prices)
+// Returns { ticker: { price, change_p, mc, ema200, hi52, lo52, beta } } for all tickers updated within 7 days
+router.get('/quotes', async (req, res) => {
+  if (!db.isPg) return res.json({});
+  const result = await db.query(
+    "SELECT ticker, price, change_p, mc, ema200, hi52, lo52, beta FROM prism_prices WHERE updated_at > NOW() - INTERVAL '7 days'"
+  );
+  if (!result.ok) return res.status(503).json({ error: result.error });
+  const out = {};
+  for (const r of result.rows) {
+    out[r.ticker] = { price: r.price, change_p: r.change_p, mc: r.mc, ema200: r.ema200, hi52: r.hi52, lo52: r.lo52, beta: r.beta };
+  }
+  res.json(out);
 });
 
 // POST /api/stocks/reset — truncate universe and re-seed with 122 curated stocks (PostgreSQL only)
