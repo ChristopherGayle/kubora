@@ -204,12 +204,13 @@ router.post('/store', async (req, res) => {
 // Body: { tickers: ["AAPL","NPN",...], token: "finnhub_api_key" }
 // Fetches from Finnhub, saves non-null results to DB, returns results to caller
 router.post('/', async (req, res) => {
-  const { tickers, token } = req.body;
+  const { tickers, token: _token } = req.body;
+  const token = _token || process.env.FINNHUB_KEY;
   if (!Array.isArray(tickers) || tickers.length === 0) {
     return res.status(400).json({ error: 'tickers array required' });
   }
   if (!token) {
-    return res.status(400).json({ error: 'token (Finnhub API key) required' });
+    return res.status(400).json({ error: 'token (Finnhub API key) required — set FINNHUB_KEY env var or pass token in body' });
   }
 
   const FINNHUB_BASE = 'https://finnhub.io/api/v1';

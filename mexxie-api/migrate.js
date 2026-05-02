@@ -210,7 +210,22 @@ async function migrate() {
       provider VARCHAR(50),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`,
-    `CREATE INDEX IF NOT EXISTS idx_fundamentals_updated ON prism_fundamentals(updated_at DESC)`
+    `CREATE INDEX IF NOT EXISTS idx_fundamentals_updated ON prism_fundamentals(updated_at DESC)`,
+
+    // Live price snapshot — one row per ticker, updated by EODHD bulk refresh
+    `CREATE TABLE IF NOT EXISTS prism_prices (
+      ticker VARCHAR(20) PRIMARY KEY,
+      price DOUBLE PRECISION,
+      change_p DOUBLE PRECISION,
+      mc DOUBLE PRECISION,
+      ema200 DOUBLE PRECISION,
+      hi52 DOUBLE PRECISION,
+      lo52 DOUBLE PRECISION,
+      beta DOUBLE PRECISION,
+      volume BIGINT,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_prices_updated ON prism_prices(updated_at DESC)`
   ];
 
   for (const ddl of tables) {

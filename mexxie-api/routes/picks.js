@@ -2,6 +2,14 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 
+// Strict numeric coercion — prevents non-number strings reaching SQL
+function n(v) { const x = +v; return (Number.isFinite(x)) ? x : 0; }
+// Ticker whitelist — only allow alphanumeric, dot, hyphen, underscore
+function safeTicker(t) {
+  if (typeof t !== 'string') return '';
+  return /^[A-Z0-9._-]+$/i.test(t) ? t.toUpperCase() : '';
+}
+
 // GET /api/picks
 router.get('/', async (req, res) => {
   let sql;
@@ -27,21 +35,23 @@ router.get('/', async (req, res) => {
 
 // POST /api/picks — add a new pick
 router.post('/', async (req, res) => {
-  const { t, n, co, date, entry, curr } = req.body;
-  if (!t) return res.status(400).json({ error: 'ticker (t) required' });
+  const { t, n: name, co, date, entry, curr } = req.body;
+  const safeT = safeTicker(t);
+  if (!safeT) return res.status(400).json({ error: 'valid ticker (t) required' });
 
   const sql = "INSERT INTO prism_prior_picks (ts, ticker, name, country_flag, entry_date, entry_price, current_price, action, removed) " +
-    "VALUES (NOW(), '" + db.esc(t) + "', '" + db.esc(n) + "', '" + db.esc(co) + "', '" +
-    db.esc(date) + "', " + (entry || 0) + ", " + (curr || 0) + ", null, false);";
+    "VALUES (NOW(), '" + safeT + "', '" + db.esc(name) + "', '" + db.esc(co) + "', '" +
+    db.esc(date) + "', " + n(entry) + ", " + n(curr) + ", null, false);";
 
   const result = await db.exec(sql);
   if (!result.ok) return res.status(503).json({ error: result.error });
-  res.json({ ok: true, ticker: t });
+  res.json({ ok: true, ticker: safeT });
 });
 
 // PUT /api/picks/:ticker — update a pick
 router.put('/:ticker', async (req, res) => {
-  const ticker = db.esc(req.params.ticker);
+  const ticker = safeTicker(req.params.ticker);
+  if (!ticker) return res.status(400).json({ error: 'invalid ticker' });
   const { action, curr } = req.body;
 
   let getSql;
@@ -54,20 +64,24 @@ router.put('/:ticker', async (req, res) => {
   if (!current.ok || current.rows.length === 0) return res.status(404).json({ error: 'Pick not found' });
   const pk = current.rows[0];
 
+  const newCurr = (curr != null) ? n(curr) : n(pk.current_price);
+  const actionSql = (action !== undefined)
+    ? (action === null ? 'null' : "'" + db.esc(action) + "'")
+    : (pk.action ? "'" + db.esc(pk.action) + "'" : 'null');
   const sql = "INSERT INTO prism_prior_picks (ts, ticker, name, country_flag, entry_date, entry_price, current_price, action, removed) " +
     "VALUES (NOW(), '" + ticker + "', '" + db.esc(pk.name) + "', '" + db.esc(pk.country_flag) + "', '" +
-    db.esc(pk.entry_date) + "', " + pk.entry_price + ", " + (curr != null ? curr : pk.current_price) +
-    ", " + (action !== undefined ? "'" + db.esc(action) + "'" : (pk.action ? "'" + db.esc(pk.action) + "'" : 'null')) +
-    ", false);";
+    db.esc(pk.entry_date) + "', " + n(pk.entry_price) + ", " + newCurr +
+    ", " + actionSql + ", false);";
 
   const result = await db.exec(sql);
   if (!result.ok) return res.status(503).json({ error: result.error });
-  res.json({ ok: true, ticker: req.params.ticker });
+  res.json({ ok: true, ticker });
 });
 
 // DELETE /api/picks/:ticker — soft-delete
 router.delete('/:ticker', async (req, res) => {
-  const ticker = db.esc(req.params.ticker);
+  const ticker = safeTicker(req.params.ticker);
+  if (!ticker) return res.status(400).json({ error: 'invalid ticker' });
 
   let getSql;
   if (db.isPg) {
@@ -81,11 +95,11 @@ router.delete('/:ticker', async (req, res) => {
 
   const sql = "INSERT INTO prism_prior_picks (ts, ticker, name, country_flag, entry_date, entry_price, current_price, action, removed) " +
     "VALUES (NOW(), '" + ticker + "', '" + db.esc(pk.name) + "', '" + db.esc(pk.country_flag) + "', '" +
-    db.esc(pk.entry_date) + "', " + pk.entry_price + ", " + pk.current_price + ", null, true);";
+    db.esc(pk.entry_date) + "', " + n(pk.entry_price) + ", " + n(pk.current_price) + ", null, true);";
 
   const result = await db.exec(sql);
   if (!result.ok) return res.status(503).json({ error: result.error });
-  res.json({ ok: true, ticker: req.params.ticker });
+  res.json({ ok: true, ticker });
 });
 
 module.exports = router;

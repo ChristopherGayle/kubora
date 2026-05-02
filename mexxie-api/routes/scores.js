@@ -3,7 +3,16 @@ const router = express.Router();
 const db = require('../db');
 
 // Safe numeric coercion — prevents non-numbers reaching SQL
-function n(v) { const x = +v; return (isFinite(x) && !isNaN(x)) ? x : 0; }
+function n(v) { const x = +v; return (Number.isFinite(x)) ? x : 0; }
+// Ticker whitelist — alphanumerics, dot, hyphen, underscore (covers all global tickers)
+function safeTicker(t) {
+  if (typeof t !== 'string') return '';
+  return /^[A-Z0-9._-]+$/i.test(t) ? t.toUpperCase() : '';
+}
+function safeIsoDate(d) {
+  if (typeof d !== 'string') return null;
+  return /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+\-]\d{2}:?\d{2})?)?$/.test(d) ? d : null;
+}
 
 // POST /api/scores — save batch of scored snapshots
 router.post('/', async (req, res) => {
@@ -57,14 +66,16 @@ router.get('/latest', async (req, res) => {
 
 // GET /api/scores/history/:ticker
 router.get('/history/:ticker', async (req, res) => {
-  const ticker = db.esc(req.params.ticker);
-  const { from, to } = req.query;
+  const ticker = safeTicker(req.params.ticker);
+  if (!ticker) return res.status(400).json({ error: 'invalid ticker' });
+  const from = safeIsoDate(req.query.from);
+  const to = safeIsoDate(req.query.to);
   const safeLimit = req.query.limit ? Math.min(10000, Math.max(1, parseInt(req.query.limit) || 500)) : null;
 
   let sql = "SELECT ts, composite_score, ey, roic, pb, momentum, rsi, fscore, altman_z, " +
     "consensus_count, data_source FROM prism_scores WHERE ticker = '" + ticker + "'";
-  if (from) sql += " AND ts >= '" + db.esc(from) + "'";
-  if (to) sql += " AND ts <= '" + db.esc(to) + "'";
+  if (from) sql += " AND ts >= '" + from + "'";
+  if (to) sql += " AND ts <= '" + to + "'";
   sql += ' ORDER BY ts';
   if (safeLimit) sql += ' LIMIT ' + safeLimit;
   sql += ';';
@@ -76,7 +87,8 @@ router.get('/history/:ticker', async (req, res) => {
 
 // GET /api/scores/history/:ticker/sampled
 router.get('/history/:ticker/sampled', async (req, res) => {
-  const ticker = db.esc(req.params.ticker);
+  const ticker = safeTicker(req.params.ticker);
+  if (!ticker) return res.status(400).json({ error: 'invalid ticker' });
   let sql;
 
   if (db.isPg) {
